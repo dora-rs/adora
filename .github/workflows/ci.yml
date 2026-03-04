@@ -59,6 +59,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: |
+          pip install maturin
+          maturin develop -m apis/python/node/Cargo.toml
+          pip install numpy
       - run: cargo test --test example-tests
       - run: cargo test --test fault-tolerance-e2e
       - run: cargo test --test example-smoke -- --test-threads=1
