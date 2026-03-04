@@ -64,9 +64,12 @@ jobs:
           python-version: "3.12"
       - name: Install Python dependencies
         run: |
-          pip install maturin
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install maturin numpy
           maturin develop -m apis/python/node/Cargo.toml
-          pip install numpy
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
       - run: cargo test --test example-tests
       - run: cargo test --test fault-tolerance-e2e
       - run: cargo test --test example-smoke -- --test-threads=1
