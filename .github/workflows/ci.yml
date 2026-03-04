@@ -67,7 +67,8 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install maturin numpy
-          maturin develop -m apis/python/node/Cargo.toml
+          maturin build -m apis/python/node/Cargo.toml -o dist
+          pip install dist/adora_rs-*.whl
           echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
           echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
       - run: cargo test --test example-tests
