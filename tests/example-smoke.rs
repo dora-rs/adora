@@ -429,7 +429,7 @@ fn smoke_local_python_async() {
     run_smoke_test_local(
         "local-python-async",
         "examples/python-async/dataflow.yaml",
-        10,
+        20,
     );
 }
 
