@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -62,15 +66,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install Python dependencies
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Set up Python venv
         run: |
-          python -m venv .venv
+          uv venv --seed -p 3.12
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           source .venv/bin/activate
-          pip install maturin numpy
-          maturin build -m apis/python/node/Cargo.toml -o dist
-          pip install dist/adora_rs-*.whl
-          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
-          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
+          uv pip install -e apis/python/node
+          uv pip install numpy
       - run: cargo test --test example-tests
       - run: cargo test --test fault-tolerance-e2e
       - run: cargo test --test example-smoke -- --test-threads=1
