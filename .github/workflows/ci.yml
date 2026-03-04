@@ -73,6 +73,7 @@ jobs:
         run: |
           uv venv --seed -p 3.12
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           source .venv/bin/activate
           uv pip install -e apis/python/node
           uv pip install numpy
