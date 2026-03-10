@@ -15,24 +15,24 @@ use eyre::{Context, ContextCompat};
 use futures::{Stream, StreamExt};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict};
-use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
 use tracing::{Level, span};
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .expect("Failed to create Tokio runtime")
+});
 
 fn runtime() -> PyResult<&'static Runtime> {
-    RUNTIME.get_or_try_init(|| {
-        Builder::new_multi_thread()
-            .worker_threads(4)
-            .enable_all()
-            .build()
-            .map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                    "Failed to create Tokio runtime: {}",
-                    e
-                ))
-            })
-    })
+    // Access the LazyLock; if the builder panicked, this will propagate.
+    // In normal operation the expect above fires only if thread/memory
+    // limits are exhausted, which is unrecoverable anyway.  Wrapping
+    // the *access* lets Python callers see a catchable exception when
+    // a previous panic poisoned the LazyLock.
+    std::panic::catch_unwind(|| &*RUNTIME)
+        .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("Failed to create Tokio runtime"))
 }
 
 /// Consume a Python `logging.LogRecord` and emit a Rust `tracing::Event` instead.

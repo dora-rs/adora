@@ -12,7 +12,6 @@ mod tests {
     use crate::typed::deserialize::StructDeserializer;
     use crate::typed::serialize;
 
-    use arrow::array::make_array;
     use arrow::pyarrow::FromPyArrow;
     use arrow::pyarrow::ToPyArrow;
 
@@ -37,7 +36,6 @@ mod tests {
     use serde_assert::Deserializer;
     #[test]
     fn test_python_array_code() -> Result<()> {
-        pyo3::prepare_freethreaded_python();
         let context = Ros2Context::new(None).context("Could not create a context")?;
         let messages = context.messages.clone();
         let serializer = Serializer::builder().build();
@@ -59,26 +57,24 @@ mod tests {
             let my_module = PyModule::import(py, "test_utils")?;
 
             let arrays = my_module.getattr("TEST_ARRAYS")?;
-            let arrays = arrays
-                .downcast::<PyList>()
-                .map_err(|err| eyre!("Could not downcast PyAny. Err: {}", err))?;
+            let arrays: pyo3::Bound<'_, PyList> =
+                arrays.extract().map_err(|e| eyre::eyre!("{e}"))?;
             for array_wrapper in arrays.iter() {
-                let arrays = array_wrapper.downcast::<PyTuple>().map_err(|err| {
-                    eyre!("Could not downcast expected tuple test array. Err: {}", err)
-                })?;
+                let arrays: pyo3::Bound<'_, PyTuple> =
+                    array_wrapper.extract().map_err(|e| eyre::eyre!("{e}"))?;
                 let package_name: String = arrays.get_item(0)?.extract()?;
                 let message_name: String = arrays.get_item(1)?.extract()?;
                 println!("Checking {}::{}", package_name, message_name);
                 let in_pyarrow = arrays.get_item(2)?;
 
-                let array = arrow::array::ArrayData::from_pyarrow_bound(&in_pyarrow.as_borrowed())?;
+                let array = arrow::array::ArrayData::from_pyarrow_bound(&in_pyarrow)?;
                 let type_info = TypeInfo {
                     package_name: package_name.into(),
                     message_name: message_name.clone().into(),
                     messages: messages.clone(),
                 };
                 let typed_value = TypedValue {
-                    value: &make_array(array.clone()),
+                    value: &arrow::array::make_array(array.clone()),
                     type_info: &type_info.clone(),
                 };
 
