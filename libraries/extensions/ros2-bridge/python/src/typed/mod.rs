@@ -15,7 +15,6 @@ mod tests {
     use arrow::pyarrow::FromPyArrow;
     use arrow::pyarrow::ToPyArrow;
 
-    use eyre::eyre;
     use pyo3::ffi::c_str;
     use pyo3::types::IntoPyDict;
     use pyo3::types::PyAnyMethods;
