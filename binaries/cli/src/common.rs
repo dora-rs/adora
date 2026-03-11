@@ -109,7 +109,6 @@ impl CoordinatorOptions {
 
     pub fn connect(&self) -> eyre::Result<WsSession> {
         connect_to_coordinator(self.socket_addr())
-            .wrap_err("failed to connect to adora coordinator")
     }
 }
 
