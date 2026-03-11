@@ -3,7 +3,9 @@ mod cluster;
 mod completion;
 mod coordinator;
 mod daemon;
+mod doctor;
 mod down;
+mod expand;
 mod graph;
 pub mod inspect;
 mod list;
@@ -11,6 +13,7 @@ mod logs;
 mod new;
 mod node;
 mod node_binary;
+mod param;
 mod record;
 mod replay;
 mod restart;
@@ -23,6 +26,7 @@ mod system;
 mod topic;
 mod trace;
 mod up;
+mod validate;
 
 pub use build::build;
 pub use run::{Run, run};
@@ -32,7 +36,9 @@ use cluster::Cluster;
 use completion::Completion;
 use coordinator::Coordinator;
 use daemon::Daemon;
+use doctor::Doctor;
 use down::Down;
+use expand::Expand;
 use eyre::Context;
 use graph::Graph;
 use inspect::Inspect;
@@ -40,6 +46,7 @@ use list::ListArgs;
 use logs::LogsArgs;
 use new::NewArgs;
 use node::Node;
+use param::Param;
 use record::Record;
 use replay::Replay;
 use restart::Restart;
@@ -51,6 +58,7 @@ use system::System;
 use topic::Topic;
 use trace::Trace;
 use up::Up;
+use validate::Validate;
 
 /// adora-rs cli client
 #[derive(Debug, clap::Subcommand)]
@@ -98,28 +106,40 @@ pub enum Command {
     /// Manage and inspect dataflow nodes
     #[clap(subcommand, display_order = 14)]
     Node(Node),
+    /// Manage runtime parameters on running nodes
+    #[clap(subcommand, display_order = 15)]
+    Param(Param),
     /// Record dataflow messages to a file for offline replay
-    #[clap(display_order = 15)]
+    #[clap(display_order = 16)]
     Record(Record),
     /// Replay a recorded dataflow from a `.adorec` file
-    #[clap(display_order = 16)]
+    #[clap(display_order = 17)]
     Replay(Replay),
     /// View coordinator tracing spans
-    #[clap(subcommand, display_order = 17)]
+    #[clap(subcommand, display_order = 18)]
     Trace(Trace),
 
     // -- Setup --
     /// Check system health
     #[clap(alias = "check", display_order = 20)]
     Status(system::status::Status),
+    /// Run comprehensive system diagnostics
+    #[clap(display_order = 19)]
+    Doctor(Doctor),
     /// Generate a new project or node
     #[clap(display_order = 21)]
     New(NewArgs),
     /// Visualize a dataflow as a graph
     #[clap(display_order = 22)]
     Graph(Graph),
+    /// Expand module references and print the flat dataflow YAML
+    #[clap(display_order = 23)]
+    Expand(Expand),
+    /// Validate a dataflow YAML file and check type annotations
+    #[clap(display_order = 24)]
+    Validate(Validate),
     /// System management commands
-    #[clap(subcommand, display_order = 23)]
+    #[clap(subcommand, display_order = 25)]
     System(System),
 
     // -- Utility --
@@ -178,12 +198,16 @@ impl Executable for Command {
             Command::Inspect(args) => args.execute(),
             Command::Topic(args) => args.execute(),
             Command::Node(args) => args.execute(),
+            Command::Param(args) => args.execute(),
             Command::Record(args) => args.execute(),
             Command::Replay(args) => args.execute(),
             Command::Trace(args) => args.execute(),
             Command::Status(args) => args.execute(),
+            Command::Doctor(args) => args.execute(),
             Command::New(args) => args.execute(),
             Command::Graph(args) => args.execute(),
+            Command::Expand(args) => args.execute(),
+            Command::Validate(args) => args.execute(),
             Command::System(args) => args.execute(),
             Command::Completion(args) => args.execute(),
             Command::Self_ { command } => command.execute(),
@@ -262,6 +286,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_expand() {
+        parse_ok(&["adora", "expand", "foo.yml"]);
+    }
+
+    #[test]
+    fn parse_expand_module() {
+        parse_ok(&["adora", "expand", "--module", "module.yml"]);
+    }
+
+    #[test]
+    fn parse_validate() {
+        parse_ok(&["adora", "validate", "dataflow.yml"]);
+    }
+
+    #[test]
+    fn parse_validate_strict() {
+        parse_ok(&["adora", "validate", "--strict", "dataflow.yml"]);
+    }
+
+    #[test]
     fn parse_new() {
         parse_ok(&["adora", "new", "test"]);
     }
@@ -294,6 +338,137 @@ mod tests {
     #[test]
     fn parse_node_list() {
         parse_ok(&["adora", "node", "list"]);
+    }
+
+    #[test]
+    fn parse_node_info() {
+        parse_ok(&["adora", "node", "info", "camera_node"]);
+    }
+
+    #[test]
+    fn parse_node_info_with_dataflow() {
+        parse_ok(&["adora", "node", "info", "sensor", "-d", "my-dataflow"]);
+    }
+
+    #[test]
+    fn reject_node_info_no_node() {
+        parse_err(&["adora", "node", "info"]);
+    }
+
+    #[test]
+    fn parse_topic_pub() {
+        parse_ok(&[
+            "adora",
+            "topic",
+            "pub",
+            "-d",
+            "my-dataflow",
+            "sensor/reading",
+            r#"{"value": 42}"#,
+        ]);
+    }
+
+    #[test]
+    fn parse_topic_pub_with_file() {
+        parse_ok(&[
+            "adora",
+            "topic",
+            "pub",
+            "-d",
+            "my-dataflow",
+            "sensor/reading",
+            "--file",
+            "data.json",
+        ]);
+    }
+
+    #[test]
+    fn reject_topic_pub_no_data_or_file() {
+        parse_err(&[
+            "adora",
+            "topic",
+            "pub",
+            "-d",
+            "my-dataflow",
+            "sensor/reading",
+        ]);
+    }
+
+    #[test]
+    fn parse_node_restart() {
+        parse_ok(&["adora", "node", "restart", "camera_node"]);
+    }
+
+    #[test]
+    fn parse_node_restart_with_grace() {
+        parse_ok(&["adora", "node", "restart", "sensor", "--grace", "30s"]);
+    }
+
+    #[test]
+    fn reject_node_restart_no_node() {
+        parse_err(&["adora", "node", "restart"]);
+    }
+
+    #[test]
+    fn parse_node_stop() {
+        parse_ok(&["adora", "node", "stop", "camera_node"]);
+    }
+
+    #[test]
+    fn parse_node_stop_with_grace() {
+        parse_ok(&[
+            "adora", "node", "stop", "sensor", "--grace", "10s", "-d", "my-flow",
+        ]);
+    }
+
+    #[test]
+    fn reject_node_stop_no_node() {
+        parse_err(&["adora", "node", "stop"]);
+    }
+
+    #[test]
+    fn parse_param_list() {
+        parse_ok(&["adora", "param", "list", "camera_node"]);
+    }
+
+    #[test]
+    fn parse_param_list_with_dataflow() {
+        parse_ok(&["adora", "param", "list", "sensor", "-d", "my-dataflow"]);
+    }
+
+    #[test]
+    fn parse_param_get() {
+        parse_ok(&["adora", "param", "get", "camera_node", "fps"]);
+    }
+
+    #[test]
+    fn parse_param_set() {
+        parse_ok(&["adora", "param", "set", "camera_node", "fps", "60"]);
+    }
+
+    #[test]
+    fn parse_param_delete() {
+        parse_ok(&["adora", "param", "delete", "camera_node", "fps"]);
+    }
+
+    #[test]
+    fn reject_param_set_no_value() {
+        parse_err(&["adora", "param", "set", "camera_node", "fps"]);
+    }
+
+    #[test]
+    fn reject_param_get_no_key() {
+        parse_err(&["adora", "param", "get", "camera_node"]);
+    }
+
+    #[test]
+    fn parse_doctor() {
+        parse_ok(&["adora", "doctor"]);
+    }
+
+    #[test]
+    fn parse_doctor_with_dataflow() {
+        parse_ok(&["adora", "doctor", "--dataflow", "dataflow.yml"]);
     }
 
     #[test]

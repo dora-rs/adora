@@ -34,8 +34,9 @@
 ### Developer experience
 
 - **Single CLI, full lifecycle** -- `adora run` for local dev, `adora up/start` for distributed prod, plus build, logs, monitoring, record/replay all from one tool
-- **Declarative YAML dataflows** -- define pipelines as directed graphs, connect nodes through typed inputs/outputs, override with environment variables
+- **Declarative YAML dataflows** -- define pipelines as directed graphs, connect nodes through typed inputs/outputs, optional [type annotations](docs/types.md) with static validation, override with environment variables
 - **Multi-language nodes** -- write nodes in Rust, Python, C, or C++ with native APIs (not wrappers); mix languages freely in one dataflow
+- **[Reusable modules](docs/modules.md)** -- compose sub-graphs as standalone YAML files with typed inputs/outputs, parameters, optional ports, and nested composition (compile-time expansion, zero runtime overhead)
 - **Hot reload** -- live-reload Python operators without restarting the dataflow
 - **Programmatic builder** -- construct dataflows in Python code as an alternative to YAML
 
@@ -225,6 +226,14 @@ See the [Distributed Deployment Guide](docs/distributed-deployment.md) for clust
 | `adora topic echo <TOPIC>` | Print topic messages to stdout |
 | `adora topic info <TOPIC>` | Show topic type and metadata |
 | `adora node list` | List nodes in a dataflow |
+| `adora node info <NODE>` | Show detailed node status, inputs, outputs, and metrics |
+| `adora node restart <NODE>` | Restart a single node within a running dataflow |
+| `adora node stop <NODE>` | Stop a single node within a running dataflow |
+| `adora topic pub <TOPIC> <DATA>` | Publish JSON data to a topic |
+| `adora param list <NODE>` | List runtime parameters for a node |
+| `adora param get <NODE> <KEY>` | Get a runtime parameter value |
+| `adora param set <NODE> <KEY> <VALUE>` | Set a runtime parameter (JSON value) |
+| `adora param delete <NODE> <KEY>` | Delete a runtime parameter |
 | `adora trace list` | List recent traces captured by the coordinator |
 | `adora trace view <ID>` | View spans for a specific trace (supports prefix matching) |
 | `adora record <PATH>` | Record dataflow messages to `.adorec` file |
@@ -246,9 +255,12 @@ See the [Distributed Deployment Guide](docs/distributed-deployment.md) for clust
 
 | Command | Description |
 |---------|-------------|
+| `adora doctor` | Diagnose environment, connectivity, and dataflow health |
 | `adora status` | Check system health (alias: `check`) |
 | `adora new` | Generate a new project or node |
 | `adora graph <PATH>` | Visualize a dataflow (Mermaid or HTML) |
+| `adora expand <PATH>` | Expand module references and print flat YAML |
+| `adora validate <PATH>` | Validate dataflow YAML and check [type annotations](docs/types.md) |
 | `adora system` | System management (daemon/coordinator control) |
 | `adora completion <SHELL>` | Generate shell completions |
 | `adora self update` | Update adora CLI |
@@ -292,6 +304,34 @@ nodes:
 **Built-in timer nodes:** `adora/timer/millis/<N>` and `adora/timer/hz/<N>`.
 
 **Input format:** `<node-id>/<output-name>` to subscribe to another node's output.
+
+**Type annotations:** Optionally annotate ports with type URNs for static and runtime validation. See the [Type Annotations Guide](docs/types.md) for the full type library.
+
+```yaml
+nodes:
+  - id: camera
+    path: camera.py
+    outputs:
+      - image
+    output_types:
+      image: std/media/v1/Image
+```
+
+```bash
+adora validate dataflow.yml                        # static check (warnings)
+adora validate --strict dataflow.yml               # fail on warnings (CI)
+ADORA_RUNTIME_TYPE_CHECK=warn adora run dataflow.yml  # runtime check
+```
+
+**Modules:** Extract reusable sub-graphs into separate files with `module:` instead of `path:`. See the [Modules Guide](docs/modules.md) for details.
+
+```yaml
+nodes:
+  - id: nav_stack
+    module: modules/navigation.module.yml
+    inputs:
+      goal_pose: localization/goal
+```
 
 ## Architecture
 
@@ -385,6 +425,13 @@ examples/               # Example dataflows
 | [c++-arrow-dataflow](examples/c++-arrow-dataflow) | C++ | C++ with Arrow data |
 | [cmake-dataflow](examples/cmake-dataflow) | C/C++ | CMake-based build |
 
+### Composition
+
+| Example | Language | Description |
+|---------|----------|-------------|
+| [module-dataflow](examples/module-dataflow) | Python | Reusable module composition |
+| [typed-dataflow](examples/typed-dataflow) | Python | Type annotations with `adora validate` |
+
 ### Communication patterns
 
 | Example | Language | Description |
@@ -420,7 +467,8 @@ See [docs/patterns.md](docs/patterns.md) for the full guide.
 
 | Example | Language | Description |
 |---------|----------|-------------|
-| [benchmark](examples/benchmark) | Rust | CPU latency benchmark |
+| [benchmark](examples/benchmark) | Rust/Python | Latency and throughput benchmark |
+| [ros2-comparison](examples/ros2-comparison) | Python | Adora vs ROS2 comparison |
 | [cuda-benchmark](examples/cuda-benchmark) | Rust/CUDA | GPU zero-copy benchmark |
 
 ### ROS2 integration

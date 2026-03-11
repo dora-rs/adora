@@ -360,6 +360,13 @@ pub struct Node {
     #[serde(default)]
     pub outputs: BTreeSet<DataId>,
 
+    /// Optional type annotations for outputs.
+    ///
+    /// Maps output identifiers to type URNs (e.g. `std/media/v1/Image`).
+    /// Only annotated outputs are type-checked; unannotated outputs remain dynamic.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub output_types: BTreeMap<DataId, String>,
+
     /// Input data connections from other nodes.
     ///
     /// Defines the inputs that this node is subscribing to.
@@ -394,6 +401,13 @@ pub struct Node {
     /// ```
     #[serde(default)]
     pub inputs: BTreeMap<DataId, Input>,
+
+    /// Optional type annotations for inputs.
+    ///
+    /// Maps input identifiers to expected type URNs. Used by `adora validate`
+    /// to check that upstream output types match expectations.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input_types: BTreeMap<DataId, String>,
 
     /// Redirect stdout/stderr to a data output.
     ///
@@ -630,6 +644,47 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health_check_timeout: Option<f64>,
 
+    /// Path to a module definition file (e.g. `nav_module.yml`).
+    ///
+    /// A module is a reusable sub-dataflow: a group of nodes with declared
+    /// inputs and outputs. At build time the module is expanded inline —
+    /// internal node IDs are prefixed with `{module_id}.` and all wiring is
+    /// rewritten so the runtime sees only flat nodes.
+    ///
+    /// Mutually exclusive with `path`, `operators`, `operator`, `custom`,
+    /// and `ros2`.
+    ///
+    /// ## Example
+    ///
+    /// ```yaml
+    /// nodes:
+    ///   - id: nav_stack
+    ///     module: modules/navigation_module.yml
+    ///     inputs:
+    ///       goal_pose: localization/goal
+    /// ```
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+
+    /// Parameters passed to a module for compile-time substitution.
+    ///
+    /// Only meaningful when `module` is set. Values are substituted into
+    /// inner node `args` fields (using `${_param.name}` syntax) and can be
+    /// injected into inner node `env` maps.
+    ///
+    /// ## Example
+    ///
+    /// ```yaml
+    /// nodes:
+    ///   - id: nav_stack
+    ///     module: modules/navigation_module.yml
+    ///     params:
+    ///       speed: "2.0"
+    ///       mode: turbo
+    /// ```
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, String>,
+
     /// Unstable machine deployment configuration
     #[schemars(skip)]
     #[serde(rename = "_unstable_deploy")]
@@ -722,6 +777,13 @@ pub struct OperatorConfig {
     /// Output data identifiers
     #[serde(default)]
     pub outputs: BTreeSet<DataId>,
+    /// Optional type annotations for outputs
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub output_types: BTreeMap<DataId, String>,
+
+    /// Optional type annotations for inputs
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub input_types: BTreeMap<DataId, String>,
 
     /// Operator source configuration (Python, shared library, etc.)
     #[serde(flatten)]

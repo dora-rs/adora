@@ -55,11 +55,12 @@ Every node requires an `id`. All other fields are optional (though most nodes ne
 
 ### Source
 
-A node's executable comes from a local path, a git repository, or is implicit (operator/ROS2 nodes).
+A node's executable comes from a local path, a git repository, a module reference, or is implicit (operator/ROS2 nodes).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `path` | string | Path to executable or script. Can also be a URL (legacy) |
+| `module` | string | Path to a module definition file (mutually exclusive with `path`). See [Modules Guide](modules.md) |
 | `git` | string | Git repo URL. `adora build` clones it and uses the clone dir as working directory |
 | `branch` | string | Branch to checkout (requires `git`, mutually exclusive with `tag`/`rev`) |
 | `tag` | string | Tag to checkout (requires `git`, mutually exclusive with `branch`/`rev`) |
@@ -122,6 +123,64 @@ outputs:
   - processed_image
   - metadata
 ```
+
+### Type Annotations
+
+Optional type annotations for inputs and outputs. Types are never required -- unannotated ports remain fully dynamic.
+
+```yaml
+- id: camera
+  path: camera.py
+  outputs:
+    - image
+    - depth
+  output_types:
+    image: std/media/v1/Image
+    depth: std/media/v1/Image
+
+- id: detector
+  path: detect.py
+  inputs:
+    image: camera/image
+  input_types:
+    image: std/media/v1/Image
+  outputs:
+    - bbox
+  output_types:
+    bbox: std/vision/v1/BoundingBox
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `output_types` | object | `{}` | Maps output IDs to type URNs. Keys must match entries in `outputs` |
+| `input_types` | object | `{}` | Maps input IDs to expected type URNs. Keys must match entries in `inputs` |
+
+Type URNs use the format `std/<category>/v<version>/<TypeName>`. See the [Type Annotations Guide](types.md) for the full standard type library.
+
+Run `adora validate <file>` to check type annotations statically. For runtime checking, set `ADORA_RUNTIME_TYPE_CHECK=warn` or `error`:
+
+```bash
+adora validate dataflow.yml
+ADORA_RUNTIME_TYPE_CHECK=warn adora run dataflow.yml
+```
+
+Types also appear on `adora graph` edge labels when annotated.
+
+### Module Parameters
+
+When using `module:`, pass configuration values via `params:`:
+
+```yaml
+- id: fast_pipeline
+  module: modules/transform.module.yml
+  inputs:
+    data: sender/value
+  params:
+    speed: "2.0"
+    mode: turbo
+```
+
+Inside the module, params are available as `$PARAM_<UPPERCASE_KEY>` in `args:` and as environment variables. See the [Modules Guide](modules.md) for full documentation.
 
 ### Environment
 

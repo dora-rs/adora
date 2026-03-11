@@ -69,6 +69,97 @@ use uuid::{NoContext, Timestamp, Uuid};
 pub use flume;
 pub use log::LogDestination;
 
+/// Benchmark support: exposes internal routing functions for criterion benchmarks.
+/// Not part of the public API.
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod bench_support {
+    use super::*;
+
+    /// Create a minimal `RunningDataflow` with the given sender->receiver mapping.
+    /// Returns the dataflow and a vec of receivers (one per subscriber).
+    pub fn setup_routing(
+        fan_out: usize,
+    ) -> (
+        RunningDataflow,
+        HLC,
+        Vec<mpsc::UnboundedReceiver<Timestamped<NodeEvent>>>,
+    ) {
+        let descriptor = adora_message::descriptor::Descriptor {
+            nodes: vec![],
+            communication: adora_message::config::CommunicationConfig::default(),
+            deploy: None,
+            debug: adora_message::descriptor::Debug::default(),
+            health_check_interval: None,
+        };
+        let mut df = RunningDataflow::new(Uuid::nil(), DaemonId::new(None), descriptor);
+
+        let sender_id: NodeId = "sender".to_string().into();
+        let output_id: DataId = "output".to_string().into();
+
+        let mut receivers = Vec::new();
+        let mut mapping = BTreeSet::new();
+
+        let input_id: DataId = "input".to_string().into();
+        for i in 0..fan_out {
+            let receiver_id: NodeId = format!("receiver_{i}").into();
+            let (tx, rx) = mpsc::unbounded_channel();
+            df.subscribe_channels.insert(receiver_id.clone(), tx);
+            df.pending_messages
+                .insert(receiver_id.clone(), Arc::new(AtomicU64::new(0)));
+            mapping.insert((receiver_id, input_id.clone()));
+            receivers.push(rx);
+        }
+
+        df.mappings.insert(OutputId(sender_id, output_id), mapping);
+
+        let clock = HLC::default();
+        (df, clock, receivers)
+    }
+
+    /// Pre-built message components for benchmark iterations.
+    pub struct RoutingFixture {
+        pub sender_id: NodeId,
+        pub output_id: DataId,
+        pub data_msg: DataMessage,
+        pub metadata: metadata::Metadata,
+    }
+
+    /// Create a reusable fixture for the routing hot path (call once per config).
+    pub fn make_fixture(clock: &HLC, payload_size: usize) -> RoutingFixture {
+        let data = vec![0u8; payload_size];
+        let type_info = ArrowTypeInfo {
+            data_type: adora_node_api::arrow::datatypes::DataType::UInt8,
+            len: payload_size,
+            null_count: 0,
+            validity: None,
+            offset: 0,
+            buffer_offsets: vec![],
+            child_data: vec![],
+        };
+        RoutingFixture {
+            sender_id: "sender".to_string().into(),
+            output_id: "output".to_string().into(),
+            data_msg: DataMessage::Vec(AVec::from_slice(128, &data)),
+            metadata: metadata::Metadata::new(clock.new_timestamp(), type_info),
+        }
+    }
+
+    /// Run one iteration of the routing hot path using pre-built fixture.
+    pub async fn route_message(df: &mut RunningDataflow, fixture: &RoutingFixture, clock: &HLC) {
+        let _ = send_output_to_local_receivers(
+            fixture.sender_id.clone(),
+            fixture.output_id.clone(),
+            df,
+            &fixture.metadata,
+            Some(fixture.data_msg.clone()),
+            clock,
+            None,
+        )
+        .await;
+    }
+}
+
 mod coordinator;
 mod extract_err_from_stderr;
 pub(crate) mod fault_tolerance;
@@ -945,6 +1036,82 @@ impl Daemon {
                 let _ = reply_tx
                     .send(Some(reply))
                     .map_err(|_| error!("could not send reload reply from daemon to coordinator"));
+                RunStatus::Continue
+            }
+            DaemonCoordinatorEvent::RestartNode {
+                dataflow_id,
+                node_id,
+                grace_duration,
+            } => {
+                let result = match self.running.get_mut(&dataflow_id) {
+                    Some(dataflow) => {
+                        dataflow.restart_single_node(&node_id, &self.clock, grace_duration)
+                    }
+                    None => Err(eyre::eyre!("no running dataflow with ID `{dataflow_id}`")),
+                };
+                let reply = DaemonCoordinatorReply::RestartNodeResult(
+                    result.map_err(|err| format!("{err:?}")),
+                );
+                let _ = reply_tx.send(Some(reply)).map_err(|_| {
+                    error!("could not send restart node reply from daemon to coordinator")
+                });
+                RunStatus::Continue
+            }
+            DaemonCoordinatorEvent::StopNode {
+                dataflow_id,
+                node_id,
+                grace_duration,
+            } => {
+                let result = match self.running.get_mut(&dataflow_id) {
+                    Some(dataflow) => {
+                        dataflow.stop_single_node(&node_id, &self.clock, grace_duration)
+                    }
+                    None => Err(eyre::eyre!("no running dataflow with ID `{dataflow_id}`")),
+                };
+                let reply = DaemonCoordinatorReply::StopNodeResult(
+                    result.map_err(|err| format!("{err:?}")),
+                );
+                let _ = reply_tx.send(Some(reply)).map_err(|_| {
+                    error!("could not send stop node reply from daemon to coordinator")
+                });
+                RunStatus::Continue
+            }
+            DaemonCoordinatorEvent::SetParam {
+                dataflow_id,
+                node_id,
+                key,
+                value,
+            } => {
+                let result = match self.running.get(&dataflow_id) {
+                    Some(dataflow) => {
+                        if let Some(channel) = dataflow.subscribe_channels.get(&node_id) {
+                            match send_with_timestamp(
+                                channel,
+                                NodeEvent::ParamUpdate { key, value },
+                                &self.clock,
+                            ) {
+                                Ok(()) => {
+                                    dataflow.inc_pending(&node_id);
+                                    Ok(())
+                                }
+                                Err(_) => Err(eyre::eyre!("node `{node_id}` channel closed")),
+                            }
+                        } else {
+                            tracing::debug!(
+                                %node_id,
+                                "param update not deliverable: node not yet connected"
+                            );
+                            Ok(())
+                        }
+                    }
+                    None => Err(eyre::eyre!("no running dataflow with ID `{dataflow_id}`")),
+                };
+                let reply = DaemonCoordinatorReply::SetParamResult(
+                    result.map_err(|err| format!("{err:?}")),
+                );
+                let _ = reply_tx.send(Some(reply)).map_err(|_| {
+                    error!("could not send set param reply from daemon to coordinator")
+                });
                 RunStatus::Continue
             }
             DaemonCoordinatorEvent::StopDataflow {
@@ -3304,6 +3471,8 @@ mod fault_tolerance_tests {
                 run_config: NodeRunConfig {
                     inputs: BTreeMap::new(),
                     outputs: BTreeSet::new(),
+                    output_types: BTreeMap::new(),
+                    input_types: BTreeMap::new(),
                 },
                 daemon_communication: None,
                 dataflow_descriptor: serde_yaml::Value::Null,
@@ -3708,6 +3877,55 @@ mod fault_tolerance_tests {
         assert!(matches_event(&events[0], "Input"));
         assert!(matches_event(&events[1], "InputRecovered"));
     }
+
+    // -- Test: send_with_timestamp delivers ParamUpdate to subscribed node --
+
+    #[test]
+    fn param_update_delivered_to_node() {
+        let _df = test_dataflow();
+        let clock = test_clock();
+        let _node_id: NodeId = "node_a".to_string().into();
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        // Simulate sending a ParamUpdate
+        let result = send_with_timestamp(
+            &tx,
+            NodeEvent::ParamUpdate {
+                key: "threshold".into(),
+                value: serde_json::json!(42),
+            },
+            &clock,
+        );
+        assert!(result.is_ok());
+
+        let events = drain_events(&mut rx);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            NodeEvent::ParamUpdate { key, value } => {
+                assert_eq!(key, "threshold");
+                assert_eq!(value, &serde_json::json!(42));
+            }
+            other => panic!("expected ParamUpdate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn param_update_fails_on_closed_channel() {
+        let clock = test_clock();
+        let (tx, rx) = mpsc::unbounded_channel::<Timestamped<NodeEvent>>();
+        drop(rx); // close the receiver
+
+        let result = send_with_timestamp(
+            &tx,
+            NodeEvent::ParamUpdate {
+                key: "rate".into(),
+                value: serde_json::json!(10),
+            },
+            &clock,
+        );
+        assert!(result.is_err());
+    }
 }
 
 trait CoreNodeKindExt {
@@ -3721,6 +3939,8 @@ impl CoreNodeKindExt for CoreNodeKind {
             CoreNodeKind::Runtime(n) => NodeRunConfig {
                 inputs: runtime_node_inputs(n),
                 outputs: runtime_node_outputs(n),
+                output_types: BTreeMap::new(),
+                input_types: BTreeMap::new(),
             },
             CoreNodeKind::Custom(n) => n.run_config.clone(),
         }

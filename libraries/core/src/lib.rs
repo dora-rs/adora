@@ -12,6 +12,7 @@ pub mod build;
 pub mod descriptor;
 pub mod metadata;
 pub mod topics;
+pub mod types;
 
 /// Adjusts a shared library path by adding the platform-specific prefix and suffix.
 ///
