@@ -68,6 +68,5 @@ fn adora_cli_python(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run, &m)?)?;
     m.add_function(wrap_pyfunction!(build, &m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-
     Ok(())
 }
