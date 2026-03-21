@@ -145,11 +145,7 @@ pub fn lib_main(args: Args) {
 #[cfg(feature = "python")]
 use clap::Parser;
 #[cfg(feature = "python")]
-use pyo3::{
-    Bound, PyResult, Python, pyfunction, pymodule,
-    types::{PyModule, PyModuleMethods},
-    wrap_pyfunction,
-};
+use pyo3::{PyResult, Python, pyfunction};
 
 #[cfg(feature = "python")]
 #[pyfunction]
@@ -167,11 +163,6 @@ fn py_main(_py: Python) -> PyResult<()> {
     Ok(())
 }
 
-/// A Python module implemented in Rust.
-#[cfg(feature = "python")]
-#[pymodule]
-fn adora_cli(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(py_main, &m)?)?;
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-    Ok(())
-}
+// The `adora_cli` PyO3 module is owned by `apis/python/cli`.
+// Keeping a second `#[pymodule]` here would export another
+// `PyInit_adora_cli` symbol and fail linking.
