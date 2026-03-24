@@ -3112,6 +3112,7 @@ async fn set_up_event_stream(
     Ok((daemon_id, coordinator_sender, incoming))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn send_output_to_local_receivers(
     node_id: NodeId,
     output_id: DataId,
