@@ -232,7 +232,7 @@ pub fn convert_output_to_json(
     }
     if data.is_some() {
         let (drop_tx, drop_rx) = flume::unbounded();
-        let data_array = data_to_arrow_array(data.clone().map(|arc| std::sync::Arc::unwrap_or_clone(arc)), metadata, drop_tx)
+        let data_array = data_to_arrow_array(data.clone().map(std::sync::Arc::unwrap_or_clone), metadata, drop_tx)
             .context("failed to convert output to arrow array")?;
         // integration testing doesn't use shared memory -> no drop tokens
         let _ = drop_rx;

@@ -548,7 +548,7 @@ impl EventStream {
                 NodeEvent::InputRecovered { id } => Event::InputRecovered { id },
                 NodeEvent::NodeRestarted { id } => Event::NodeRestarted { id },
                 NodeEvent::Input { id, metadata, data } => {
-                    let data_inner = data.map(|arc| Arc::unwrap_or_clone(arc));
+                    let data_inner = data.map(Arc::unwrap_or_clone);
                     let result = data_to_arrow_array(data_inner, &metadata, ack_channel);
                     match result {
                         Ok(data) => Event::Input {
