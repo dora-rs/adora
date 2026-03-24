@@ -3541,7 +3541,8 @@ const CONTROL_EVENT_HEADROOM: usize = 50;
 /// Data events (Input) respect headroom reservation to ensure control events
 /// (Stop, InputClosed, etc.) are always deliverable. Callers should only
 /// increment pending counters when `Ok(true)` is returned.
-pub(crate) fn send_with_timestamp(
+#[allow(clippy::result_large_err)]
+fn send_with_timestamp(
     sender: &mpsc::Sender<Timestamped<NodeEvent>>,
     event: NodeEvent,
     clock: &HLC,
