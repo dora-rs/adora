@@ -6,17 +6,19 @@ fn main() -> eyre::Result<()> {
     let output = DataId::from("values".to_owned());
 
     // Send 10 messages with known values: [0, 10, 20, ..., 90]
-    for i in 0..10 {
+    let mut sent: i64 = 0;
+    while sent < 10 {
         let event = match events.recv() {
             Some(e) => e,
             None => break,
         };
         match event {
             Event::Input { id, metadata, .. } if id.as_str() == "tick" => {
-                let value: i64 = i * 10;
+                let value = sent * 10;
                 node.send_output(output.clone(), metadata.parameters, value.into_arrow())
                     .context("failed to send output")?;
                 println!("rust-sender: sent {value}");
+                sent += 1;
             }
             Event::Stop(_) => break,
             _ => {}
