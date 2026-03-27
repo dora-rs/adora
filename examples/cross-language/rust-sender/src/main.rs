@@ -17,7 +17,7 @@ fn main() -> eyre::Result<()> {
                 let value = sent * 10;
                 node.send_output(output.clone(), metadata.parameters, value.into_arrow())
                     .context("failed to send output")?;
-                println!("rust-sender: sent {value}");
+                eprintln!("rust-sender: sent {value}");
                 sent += 1;
             }
             Event::Stop(_) => break,

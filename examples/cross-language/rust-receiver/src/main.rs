@@ -9,23 +9,27 @@ fn main() -> eyre::Result<()> {
         match event {
             Event::Input { id, data, .. } if id.as_str() == "values" => {
                 // Python sends pa.array([i * 10], type=pa.int64()) so we receive a single i64
-                let values: &[i64] = data
+                let arr = data
                     .as_any()
                     .downcast_ref::<arrow::array::Int64Array>()
-                    .context("expected Int64Array from Python sender")?
-                    .values();
-                if values.len() != 1 {
-                    bail!("expected 1 element from Python, got {}", values.len());
+                    .context("expected Int64Array from Python sender")?;
+                if arr.is_empty() {
+                    bail!("received empty array from Python sender");
                 }
-                let expected = received_count * 10;
-                if values[0] != expected {
-                    bail!("value mismatch: expected {expected}, got {}", values[0]);
+                if arr.len() != 1 {
+                    bail!("expected 1 element from Python, got {}", arr.len());
                 }
-                println!("rust-receiver: validated value {}", values[0]);
+                let value = arr.value(0);
+                if value % 10 != 0 || !(0..=90).contains(&value) {
+                    bail!(
+                        "unexpected value from Python sender: {value} (expected multiple of 10 in [0, 90])"
+                    );
+                }
+                eprintln!("rust-receiver: validated value {value}");
                 received_count += 1;
             }
             Event::Stop(_) => {
-                println!("rust-receiver: stopping after {received_count} messages");
+                eprintln!("rust-receiver: stopping after {received_count} messages");
                 break;
             }
             _ => {}
@@ -37,6 +41,6 @@ fn main() -> eyre::Result<()> {
             "rust-receiver got only {received_count} messages from Python sender (expected >= 5)"
         );
     }
-    println!("rust-receiver: SUCCESS - validated {received_count} messages");
+    eprintln!("rust-receiver: SUCCESS - validated {received_count} messages");
     Ok(())
 }

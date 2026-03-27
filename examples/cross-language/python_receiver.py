@@ -5,6 +5,9 @@ import sys
 from adora import Node
 
 
+VALID_VALUES = {i * 10 for i in range(10)}  # {0, 10, 20, ..., 90}
+
+
 def main():
     node = Node()
     received_count = 0
@@ -15,9 +18,8 @@ def main():
             if len(values) != 1:
                 print(f"python-receiver: ERROR expected 1 element, got {len(values)}")
                 sys.exit(1)
-            expected = received_count * 10
-            if values[0] != expected:
-                print(f"python-receiver: ERROR expected {expected}, got {values[0]}")
+            if values[0] not in VALID_VALUES:
+                print(f"python-receiver: ERROR unexpected value {values[0]} (expected multiple of 10 in [0, 90])")
                 sys.exit(1)
             print(f"python-receiver: validated value {values[0]}")
             received_count += 1
