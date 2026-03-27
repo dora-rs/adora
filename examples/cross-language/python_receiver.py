@@ -24,8 +24,8 @@ def main():
         elif event["type"] == "STOP":
             break
 
-    if received_count == 0:
-        print("python-receiver: ERROR got 0 messages from Rust sender")
+    if received_count < 5:
+        print(f"python-receiver: ERROR got only {received_count} messages from Rust sender (expected >= 5)")
         sys.exit(1)
 
     print(f"python-receiver: SUCCESS - validated {received_count} messages")

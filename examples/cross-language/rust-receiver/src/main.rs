@@ -32,8 +32,10 @@ fn main() -> eyre::Result<()> {
         }
     }
 
-    if received_count == 0 {
-        bail!("rust-receiver got 0 messages from Python sender");
+    if received_count < 5 {
+        bail!(
+            "rust-receiver got only {received_count} messages from Python sender (expected >= 5)"
+        );
     }
     println!("rust-receiver: SUCCESS - validated {received_count} messages");
     Ok(())

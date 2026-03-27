@@ -1,5 +1,7 @@
 """Python sender for cross-language test. Sends 10 i64 Arrow arrays to Rust receiver."""
 
+import time
+
 import pyarrow as pa
 from adora import Node
 
@@ -11,6 +13,7 @@ def main():
         value = i * 10
         node.send_output("values", pa.array([value], type=pa.int64()))
         print(f"python-sender: sent {value}")
+        time.sleep(0.05)
 
     print("python-sender: finished sending 10 messages")
 
