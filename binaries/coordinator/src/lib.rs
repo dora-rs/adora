@@ -2023,10 +2023,14 @@ async fn start_inner(
                                 )
                                 .await;
                             }
-                            // Do NOT mark daemon as caught up here — wait for
-                            // the daemon's StateCatchUpAck to confirm delivery.
-                            // The next status-report cycle will re-trigger if
-                            // the ack never arrives.
+                            // Mark daemon as caught up: the full replay sends
+                            // the complete current state from the store (source
+                            // of truth). Individual SetParam events don't
+                            // trigger StateCatchUpAck, so without this the
+                            // coordinator would re-trigger full replay on every
+                            // status-report cycle.
+                            df.daemon_ack_sequence
+                                .insert(daemon_id.clone(), df.state_log_sequence);
                         }
                     }
                 }

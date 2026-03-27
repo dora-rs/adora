@@ -250,6 +250,10 @@ impl RunningDataflow {
         // Hard-cap: drop oldest entries if the log is too large.
         if self.state_log.len() > MAX_STATE_LOG_ENTRIES {
             let drain_count = self.state_log.len() - MAX_STATE_LOG_ENTRIES;
+            tracing::warn!(
+                "state replication log exceeded {MAX_STATE_LOG_ENTRIES} entries, \
+                 dropping {drain_count} oldest (disconnected daemons will need full replay)"
+            );
             self.state_log.drain(..drain_count);
         }
     }
