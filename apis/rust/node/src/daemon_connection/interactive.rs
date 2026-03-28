@@ -194,14 +194,19 @@ fn read_arrow_ipc_file(path: &Path) -> eyre::Result<arrow::array::ArrayData> {
 
 /// Decode a hex string into a `UInt8Array`.
 fn decode_hex_as_uint8_array(hex: &str) -> eyre::Result<arrow::array::ArrayData> {
+    eyre::ensure!(!hex.is_empty(), "HEX: input is empty");
+    eyre::ensure!(
+        hex.len() % 2 == 0,
+        "HEX: odd number of characters ({}), hex bytes must come in pairs",
+        hex.len()
+    );
     let bytes: Vec<u8> = (0..hex.len())
         .step_by(2)
         .map(|i| {
-            u8::from_str_radix(hex.get(i..i + 2).unwrap_or(""), 16)
+            u8::from_str_radix(&hex[i..i + 2], 16)
                 .with_context(|| format!("invalid hex at position {i}"))
         })
         .collect::<eyre::Result<Vec<u8>>>()?;
-    eyre::ensure!(!bytes.is_empty(), "HEX: input is empty");
     let array = UInt8Array::from(bytes);
     Ok(array.to_data())
 }
@@ -222,6 +227,11 @@ mod tests {
     #[test]
     fn test_decode_hex_empty() {
         assert!(decode_hex_as_uint8_array("").is_err());
+    }
+
+    #[test]
+    fn test_decode_hex_odd_length() {
+        assert!(decode_hex_as_uint8_array("abc").is_err());
     }
 
     #[test]
