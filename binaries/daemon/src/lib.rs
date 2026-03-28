@@ -6,8 +6,8 @@ use adora_core::{
         read_as_descriptor,
     },
     topics::{
-        ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT, LOCALHOST, open_zenoh_session,
-        zenoh_output_publish_topic,
+        ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT, ADORA_DAEMON_LOCAL_LISTEN_PORT_ENV, LOCALHOST,
+        open_zenoh_session, zenoh_output_publish_topic,
     },
     uhlc::{self, HLC},
 };
@@ -450,6 +450,15 @@ impl Daemon {
         labels: BTreeMap<String, String>,
         local_listen_port: u16,
     ) -> eyre::Result<()> {
+        // Export the port so dynamic nodes can discover it via env var.
+        // SAFETY: called once at daemon startup before spawning threads.
+        unsafe {
+            std::env::set_var(
+                ADORA_DAEMON_LOCAL_LISTEN_PORT_ENV,
+                local_listen_port.to_string(),
+            );
+        }
+
         let clock = Arc::new(HLC::default());
         let mut ctrlc_events = set_up_ctrlc_handler(clock.clone())?;
         let mut reconnect_attempt = 0u32;

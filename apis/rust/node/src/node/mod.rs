@@ -18,7 +18,9 @@ use adora_core::{
     config::{DataId, NodeId, NodeRunConfig},
     descriptor::Descriptor,
     metadata::ArrowTypeInfoExt,
-    topics::{ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT, LOCALHOST},
+    topics::{
+        ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT, ADORA_DAEMON_LOCAL_LISTEN_PORT_ENV, LOCALHOST,
+    },
     types::TypeRegistry,
     uhlc,
 };
@@ -268,7 +270,11 @@ impl AdoraNode {
     ///
     pub fn init_from_node_id(node_id: NodeId) -> NodeResult<(Self, EventStream)> {
         // Make sure that the node is initialized outside of adora start.
-        let daemon_address = (LOCALHOST, ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT).into();
+        let port = std::env::var(ADORA_DAEMON_LOCAL_LISTEN_PORT_ENV)
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(ADORA_DAEMON_LOCAL_LISTEN_PORT_DEFAULT);
+        let daemon_address = (LOCALHOST, port).into();
 
         let mut channel =
             DaemonChannel::new_tcp(daemon_address).context("Could not connect to the daemon")?;
