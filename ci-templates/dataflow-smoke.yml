@@ -14,6 +14,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   # Path to your dataflow YAML file
@@ -41,7 +45,7 @@ jobs:
         run: cargo install adora-cli --locked
 
       - name: Build nodes
-        run: adora build ${{ env.DATAFLOW_PATH }}
+        run: adora build "$DATAFLOW_PATH"
 
       - name: Run dataflow
-        run: adora run ${{ env.DATAFLOW_PATH }} --stop-after ${{ env.STOP_AFTER }}
+        run: adora run "$DATAFLOW_PATH" --stop-after "$STOP_AFTER"
