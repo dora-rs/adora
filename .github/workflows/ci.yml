@@ -90,6 +90,54 @@ jobs:
           cargo test --test fault-tolerance-e2e -- --test-threads=1
         timeout-minutes: 15
 
+  bench:
+    name: Benchmark regression check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+
+      # Restore baseline from the most recent main-branch run
+      - name: Restore baseline
+        id: cache-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: target/criterion-baseline
+          key: bench-baseline-${{ runner.os }}
+
+      # Run benchmarks and save results
+      - name: Run benchmarks
+        run: |
+          cargo bench -p adora-message -p shared-memory-server \
+            -- --output-format bencher 2>&1 | tee bench-output.txt
+          cargo bench -p adora-daemon --features bench \
+            -- --output-format bencher 2>&1 | tee -a bench-output.txt
+
+      # Compare against baseline (informational, does not fail CI)
+      - name: Compare against baseline
+        if: steps.cache-baseline.outputs.cache-hit == 'true'
+        run: |
+          echo "## Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat bench-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # On main branch: save new baseline for future comparisons
+      - name: Save baseline
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p target/criterion-baseline
+          cp -r target/criterion/* target/criterion-baseline/ 2>/dev/null || true
+      - name: Cache baseline
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: target/criterion-baseline
+          key: bench-baseline-${{ runner.os }}-${{ github.sha }}
+
   typos:
     name: Typos
     runs-on: ubuntu-latest
