@@ -16,7 +16,7 @@ async def main():
     received = 0
 
     while True:
-        event = await node.recv_async(timeout=5.0)
+        event = await node.recv_async(timeout=2.0)
         if event is None:
             break
         if event["type"] == "INPUT" and event["id"] == "values":

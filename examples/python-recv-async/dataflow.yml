@@ -12,6 +12,7 @@ nodes:
       values: sender/values
     input_types:
       values: std/core/v1/Int64
+    # outputs declared to test send_output() from async context (GIL interaction)
     outputs:
       - echo
     output_types:
