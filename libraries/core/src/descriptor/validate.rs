@@ -138,26 +138,7 @@ pub fn check_dataflow(
     }
 
     // check that all inputs mappings point to an existing output
-    for node in nodes.values() {
-        match &node.kind {
-            descriptor::CoreNodeKind::Custom(custom_node) => {
-                for (input_id, input) in &custom_node.run_config.inputs {
-                    check_input(input, &nodes, &format!("{}/{input_id}", node.id))?;
-                }
-            }
-            descriptor::CoreNodeKind::Runtime(runtime_node) => {
-                for operator_definition in &runtime_node.operators {
-                    for (input_id, input) in &operator_definition.config.inputs {
-                        check_input(
-                            input,
-                            &nodes,
-                            &format!("{}/{}/{input_id}", operator_definition.id, node.id),
-                        )?;
-                    }
-                }
-            }
-        };
-    }
+    check_wiring(dataflow)?;
 
     // Check that nodes can resolve `send_stdout_as`, `send_logs_as`, `min_log_level`
     for node in nodes.values() {
