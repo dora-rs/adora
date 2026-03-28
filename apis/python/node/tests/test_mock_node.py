@@ -1,5 +1,7 @@
 """Tests for adora.testing.MockNode."""
 
+import asyncio
+
 import pyarrow as pa
 
 from adora.testing import MockNode
@@ -59,3 +61,27 @@ def test_mock_node_metadata():
     )
     event = next(node)
     assert event["metadata"]["request_id"] == "abc123"
+
+
+def test_mock_node_metadata_not_shared():
+    node = MockNode(
+        [("a", pa.array([1])), ("b", pa.array([2]))],
+        metadata={"key": "original"},
+    )
+    first = next(node)
+    first["metadata"]["key"] = "mutated"
+    second = next(node)
+    assert second["metadata"]["key"] == "original"
+
+
+def test_mock_node_recv_async():
+    async def run():
+        node = MockNode([("tick", pa.array([0]))])
+        event = await node.recv_async()
+        assert event["type"] == "INPUT"
+        event = await node.recv_async()
+        assert event["type"] == "STOP"
+        event = await node.recv_async()
+        assert event is None
+
+    asyncio.run(run())
