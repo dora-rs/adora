@@ -264,7 +264,7 @@ fi
 
 if [ "$RUN_RUST" = true ] && [ "$RUN_PYTHON" = true ]; then
     echo "Building queue_size_latest_data Rust receiver..."
-    cargo build --release -p receive_data 2>&1 | tail -1
+    cargo build -p receive_data 2>&1 | tail -1
 
     run_local "local-queue-size-latest-data-rust" "tests/queue_size_latest_data_rust/dataflow.yaml" 20
 fi

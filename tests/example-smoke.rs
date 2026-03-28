@@ -756,7 +756,7 @@ fn smoke_local_queue_size_latest_data_python() {
 fn ensure_queue_latest_rust_built() {
     BUILD_QUEUE_LATEST_RUST.call_once(|| {
         let status = Command::new("cargo")
-            .args(["build", "--release", "-p", "receive_data"])
+            .args(["build", "-p", "receive_data"])
             .status()
             .expect("failed to run cargo build for receive_data");
         assert!(status.success(), "failed to build receive_data");
