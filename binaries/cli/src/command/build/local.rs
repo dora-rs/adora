@@ -81,11 +81,18 @@ async fn build_dataflow(
     };
 
     if parallel && tasks.len() > 1 {
-        log::info!("Building {} nodes in parallel", tasks.len());
-        let (ids, futs): (Vec<_>, Vec<_>) = tasks.into_iter().unzip();
-        let results = futures::future::join_all(futs).await;
-        for (node_id, result) in ids.into_iter().zip(results) {
-            let node = result.with_context(|| format!("failed to build node `{node_id}`"))?;
+        tracing::info!("Building {} nodes in parallel", tasks.len());
+        let mut join_set = tokio::task::JoinSet::new();
+        for (node_id, task) in tasks {
+            join_set.spawn(async move {
+                let node = task.await?;
+                Ok::<_, eyre::Report>((node_id, node))
+            });
+        }
+        while let Some(result) = join_set.join_next().await {
+            let (node_id, node) = result
+                .context("build task panicked")?
+                .with_context(|| "node build failed")?;
             info.node_working_dirs
                 .insert(node_id, node.node_working_dir);
         }
