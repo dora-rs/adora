@@ -7,7 +7,8 @@ members = [
     "apis/python/cli",
     "apis/python/node",
     "apis/python/operator",
-    "apis/rust/*",
+    "apis/rust/node",
+    "apis/rust/operator",
     "apis/rust/operator/macros",
     "apis/rust/operator/types",
     "binaries/cli",
@@ -57,6 +58,8 @@ members = [
     "libraries/extensions/ros2-bridge/python",
     "libraries/extensions/ros2-bridge/arrow",
     "tests/queue_size_latest_data_rust/receive_data",
+    "apis/rust/compat/dora-node-api",
+    "apis/rust/compat/dora-operator-api",
 ]
 
 [workspace.package]
