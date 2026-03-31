@@ -136,7 +136,6 @@ impl EventStream {
                             format!("failed to connect event close channel for node `{node_id}`")
                         })?
                     }
-                    #[cfg(unix)]
                     DaemonCommunication::Interactive => {
                         DaemonChannel::Interactive(Default::default())
                     }
