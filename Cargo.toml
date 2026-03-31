@@ -11,6 +11,8 @@ members = [
     "apis/rust/operator",
     "apis/rust/operator/macros",
     "apis/rust/operator/types",
+    "apis/rust/compat/dora-node-api",
+    "apis/rust/compat/dora-operator-api",
     "binaries/cli",
     "binaries/coordinator",
     "binaries/daemon",
@@ -58,8 +60,6 @@ members = [
     "libraries/extensions/ros2-bridge/python",
     "libraries/extensions/ros2-bridge/arrow",
     "tests/queue_size_latest_data_rust/receive_data",
-    "apis/rust/compat/dora-node-api",
-    "apis/rust/compat/dora-operator-api",
 ]
 
 [workspace.package]
