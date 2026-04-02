@@ -426,22 +426,25 @@ mod tests {
         connections.add(DaemonId::new(Some("bbb".to_string())), second_conn);
 
         // Minimal dataflow with two nodes deployed to different machines.
-        let yaml = r#"
-nodes:
-  - id: node-a
-    path: /tmp/dummy-a
-    _unstable_deploy:
-      machine: aaa
-    outputs:
-      - out
-  - id: node-b
-    path: /tmp/dummy-b
-    _unstable_deploy:
-      machine: bbb
-    inputs:
-      in: node-a/out
-"#;
-        let dataflow: Descriptor = serde_yaml::from_str(yaml).unwrap();
+        let dataflow: Descriptor = serde_json::from_str(
+            r#"{
+                "nodes": [
+                    {
+                        "id": "node-a",
+                        "path": "/tmp/dummy-a",
+                        "_unstable_deploy": { "machine": "aaa" },
+                        "outputs": ["out"]
+                    },
+                    {
+                        "id": "node-b",
+                        "path": "/tmp/dummy-b",
+                        "_unstable_deploy": { "machine": "bbb" },
+                        "inputs": { "in": "node-a/out" }
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
 
         let result = spawn_dataflow(
             None,

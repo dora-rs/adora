@@ -45,4 +45,3 @@ prometheus = { version = "0.14", optional = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 tokio-tungstenite = "0.28"
-serde_yaml = { workspace = true }
