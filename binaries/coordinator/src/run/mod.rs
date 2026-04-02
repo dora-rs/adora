@@ -180,8 +180,9 @@ pub struct SpawnedDataflow {
 ///
 /// - Uses `force: true` because nodes have not reached a ready state during a
 ///   partial spawn, so graceful shutdown hooks are unnecessary.
-/// - Stops are issued concurrently so a single unresponsive daemon does not
-///   delay rollback of the others (each is bounded by `TCP_READ_TIMEOUT`).
+/// - Stops are issued sequentially because `&mut DaemonConnections` cannot
+///   hand out multiple mutable references. Each call is individually bounded
+///   by `TCP_READ_TIMEOUT`.
 /// - Daemon-supplied error strings are truncated to prevent oversized messages
 ///   propagating to clients.
 async fn rollback_spawned_daemons(
@@ -419,11 +420,10 @@ mod tests {
 
         // Use machine IDs that sort deterministically: "aaa" < "bbb" in BTreeMap.
         let first_id = DaemonId::new(Some("aaa".to_string()));
-        let second_id = DaemonId::new(Some("bbb".to_string()));
 
         let mut connections = DaemonConnections::default();
         connections.add(first_id.clone(), first_conn);
-        connections.add(second_id.clone(), second_conn);
+        connections.add(DaemonId::new(Some("bbb".to_string())), second_conn);
 
         // Minimal dataflow with two nodes deployed to different machines.
         let yaml = r#"
