@@ -2078,25 +2078,45 @@ async fn start_inner(
                                 .filter(|(_, did)| **did == daemon_id)
                                 .map(|(nid, _)| nid.clone())
                                 .collect();
-                            if let Some(conn) = daemon_connections.get_mut(&daemon_id) {
-                                replay_persisted_params_for_daemon(
-                                    *uuid,
-                                    daemon_id.clone(),
-                                    node_ids,
-                                    store.clone(),
-                                    conn.clone(),
-                                    clock.clone(),
-                                )
-                                .await;
+                            let replay_summary =
+                                if let Some(conn) = daemon_connections.get_mut(&daemon_id) {
+                                    replay_persisted_params_for_daemon(
+                                        *uuid,
+                                        daemon_id.clone(),
+                                        node_ids,
+                                        store.clone(),
+                                        conn.clone(),
+                                        clock.clone(),
+                                    )
+                                    .await
+                                } else {
+                                    tracing::warn!(
+                                        "failed to run fallback replay for dataflow {uuid}: \
+                                     daemon {daemon_id} is not connected"
+                                    );
+                                    ParamReplaySummary {
+                                        attempted: 0,
+                                        failed: 1,
+                                    }
+                                };
+                            if replay_summary.all_succeeded() {
+                                // Mark daemon as caught up only when full replay succeeds:
+                                // replay is authoritative for pruned history, and advancing
+                                // ack on partial failure can silently diverge runtime/store state.
+                                // Individual SetParam events don't trigger StateCatchUpAck, so
+                                // we set ack here for successful full replay to avoid repeated
+                                // fallback replays on every status-report cycle.
+                                df.daemon_ack_sequence
+                                    .insert(daemon_id.clone(), df.state_log_sequence);
+                            } else {
+                                tracing::warn!(
+                                    "fallback replay incomplete for dataflow {uuid} on daemon \
+                                     {daemon_id}: attempted={}, failed={}; leaving ack at {}",
+                                    replay_summary.attempted,
+                                    replay_summary.failed,
+                                    last_ack
+                                );
                             }
-                            // Mark daemon as caught up: the full replay sends
-                            // the complete current state from the store (source
-                            // of truth). Individual SetParam events don't
-                            // trigger StateCatchUpAck, so without this the
-                            // coordinator would re-trigger full replay on every
-                            // status-report cycle.
-                            df.daemon_ack_sequence
-                                .insert(daemon_id.clone(), df.state_log_sequence);
                         }
                     }
                 }
@@ -2142,6 +2162,18 @@ struct ParamReplayItem {
     node_id: adora_core::config::NodeId,
     key: String,
     value_json: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ParamReplaySummary {
+    attempted: usize,
+    failed: usize,
+}
+
+impl ParamReplaySummary {
+    fn all_succeeded(self) -> bool {
+        self.failed == 0
+    }
 }
 
 fn collect_param_replay_items(
@@ -2258,10 +2290,11 @@ async fn replay_persisted_params_for_daemon(
     store: Arc<dyn adora_coordinator_store::CoordinatorStore>,
     connection: crate::state::DaemonConnection,
     clock: Arc<HLC>,
-) {
+) -> ParamReplaySummary {
     let replay_items = collect_param_replay_items(dataflow_id, &node_ids_on_daemon, store.as_ref());
+    let mut summary = ParamReplaySummary::default();
     if replay_items.is_empty() {
-        return;
+        return summary;
     }
 
     tracing::debug!(
@@ -2272,6 +2305,7 @@ async fn replay_persisted_params_for_daemon(
     );
 
     for item in replay_items {
+        summary.attempted += 1;
         let message = match build_set_param_message_from_raw_json(
             dataflow_id,
             &item.node_id,
@@ -2286,6 +2320,7 @@ async fn replay_persisted_params_for_daemon(
                     item.node_id,
                     item.key
                 );
+                summary.failed += 1;
                 continue;
             }
         };
@@ -2298,6 +2333,7 @@ async fn replay_persisted_params_for_daemon(
                     item.node_id,
                     item.key
                 );
+                summary.failed += 1;
                 continue;
             }
         };
@@ -2310,6 +2346,7 @@ async fn replay_persisted_params_for_daemon(
                     item.node_id,
                     item.key
                 );
+                summary.failed += 1;
             }
             Ok(other) => {
                 tracing::warn!(
@@ -2317,6 +2354,7 @@ async fn replay_persisted_params_for_daemon(
                     item.node_id,
                     item.key
                 );
+                summary.failed += 1;
             }
             Err(err) => {
                 tracing::warn!(
@@ -2324,9 +2362,12 @@ async fn replay_persisted_params_for_daemon(
                     item.node_id,
                     item.key
                 );
+                summary.failed += 1;
             }
         }
     }
+
+    summary
 }
 
 #[cfg(test)]
@@ -2536,7 +2577,7 @@ mod tests {
             let _ = reply_tx.send(reply);
         });
 
-        replay_persisted_params_for_daemon(
+        let summary = replay_persisted_params_for_daemon(
             dataflow_id,
             daemon_id,
             vec![node_id],
@@ -2545,6 +2586,9 @@ mod tests {
             Arc::new(HLC::default()),
         )
         .await;
+        assert_eq!(summary.attempted, 1);
+        assert_eq!(summary.failed, 0);
+        assert!(summary.all_succeeded());
 
         daemon_task.await.unwrap();
     }
@@ -2560,7 +2604,69 @@ mod tests {
         let pending_replies = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let connection = crate::state::DaemonConnection::new(tx, pending_replies, BTreeMap::new());
 
-        replay_persisted_params_for_daemon(
+        let summary = replay_persisted_params_for_daemon(
+            dataflow_id,
+            daemon_id,
+            vec![node_id],
+            store,
+            connection,
+            Arc::new(HLC::default()),
+        )
+        .await;
+        assert_eq!(summary.attempted, 0);
+        assert_eq!(summary.failed, 0);
+        assert!(summary.all_succeeded());
+
+        let recv = timeout(TokioDuration::from_millis(50), rx.recv()).await;
+        assert!(
+            matches!(recv, Err(_) | Ok(None)),
+            "no replay command should be sent for empty persisted params"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_reports_failure_when_daemon_rejects_param() {
+        #[derive(serde::Deserialize)]
+        struct OutboundRaw {
+            id: String,
+        }
+
+        let store: Arc<dyn CoordinatorStore> = Arc::new(InMemoryStore::new());
+        let dataflow_id = DataflowId::from(Uuid::new_v4());
+        let daemon_id = DaemonId::new(Some("m1".to_string()));
+        let node_id: adora_core::config::NodeId = "camera".to_string().into();
+
+        let value_bytes = serde_json::to_vec(&serde_json::json!(7)).unwrap();
+        store
+            .put_node_param(&dataflow_id, &node_id, "threshold", &value_bytes)
+            .unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
+        let pending_replies = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let connection =
+            crate::state::DaemonConnection::new(tx, pending_replies.clone(), BTreeMap::new());
+
+        let daemon_task = tokio::spawn(async move {
+            let outbound = rx
+                .recv()
+                .await
+                .expect("daemon should receive replay command");
+            let outbound_raw: OutboundRaw = serde_json::from_str(&outbound).unwrap();
+            let request_id = Uuid::parse_str(&outbound_raw.id).expect("valid request id");
+
+            let reply = serde_json::to_string(&DaemonCoordinatorReply::SetParamResult(Err(
+                "rejected".to_string(),
+            )))
+            .unwrap();
+            let reply_tx = pending_replies
+                .lock()
+                .await
+                .remove(&request_id)
+                .expect("pending reply sender should exist");
+            let _ = reply_tx.send(reply);
+        });
+
+        let summary = replay_persisted_params_for_daemon(
             dataflow_id,
             daemon_id,
             vec![node_id],
@@ -2570,11 +2676,10 @@ mod tests {
         )
         .await;
 
-        let recv = timeout(TokioDuration::from_millis(50), rx.recv()).await;
-        assert!(
-            matches!(recv, Err(_) | Ok(None)),
-            "no replay command should be sent for empty persisted params"
-        );
+        assert_eq!(summary.attempted, 1);
+        assert_eq!(summary.failed, 1);
+        assert!(!summary.all_succeeded());
+        daemon_task.await.unwrap();
     }
 
     #[tokio::test]
