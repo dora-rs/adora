@@ -67,6 +67,209 @@ jobs:
           --exclude rust-dataflow-example-node
           --exclude multiple-daemons-example-operator
 
+  # ===== Examples (cross-platform) =====
+  # Restored from old CI — runs actual dataflows end-to-end.
+  # This catches runtime issues that unit tests miss (e.g. #135).
+  examples:
+    name: Examples (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    needs: test
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        if: runner.os == 'Linux'
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: true
+      - name: Build CLI
+        timeout-minutes: 45
+        run: cargo install --path binaries/cli --locked
+      - name: Build examples
+        timeout-minutes: 30
+        run: cargo build --examples
+      - name: Rust Dataflow example
+        timeout-minutes: 30
+        run: cargo run --example rust-dataflow
+      - name: Multiple Daemons example
+        timeout-minutes: 30
+        run: cargo run --example multiple-daemons
+      - name: C Dataflow example
+        timeout-minutes: 15
+        run: cargo run --example c-dataflow
+      - name: "C++ Dataflow example"
+        timeout-minutes: 15
+        run: cargo run --example cxx-dataflow
+      - name: Install Arrow C++ Library
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update
+            sudo apt-get install -y -V ca-certificates lsb-release wget
+            wget https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+            sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+            sudo apt-get update
+            sudo apt-get install -y -V libarrow-dev libarrow-glib-dev
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            brew update
+            brew install apache-arrow
+          fi
+      - name: "C++ Arrow Dataflow example"
+        timeout-minutes: 15
+        run: cargo run --example cxx-arrow-dataflow
+      - name: CMake example
+        if: runner.os == 'Linux'
+        timeout-minutes: 30
+        run: cargo run --example cmake-dataflow
+      - name: Benchmark example
+        timeout-minutes: 30
+        run: cargo run --example benchmark --release
+
+  # ===== CLI integration tests (cross-platform) =====
+  # Restored from old CI — tests template creation, Python examples,
+  # dynamic dataflows, and queue latency tests.
+  cli:
+    name: CLI Tests (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    needs: test
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        if: runner.os == 'Linux'
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: true
+      - name: Build CLI
+        timeout-minutes: 45
+        shell: bash
+        run: cargo install --path binaries/cli --locked
+
+      - name: Test Rust template project
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          adora new test_rust_project --internal-create-with-path-dependencies
+          cd test_rust_project
+          cargo build --all
+          adora run dataflow.yml --stop-after 10s
+          cd ..
+
+      - name: Test Dynamic Rust Dataflow
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          adora up
+          adora list
+          adora build examples/rust-dataflow/dataflow_dynamic.yml
+          adora start examples/rust-dataflow/dataflow_dynamic.yml --name ci-rust-dynamic --detach
+          cargo run -p rust-dataflow-example-sink-dynamic
+          sleep 5
+          adora stop --name ci-rust-dynamic --grace-duration 5s
+          adora destroy
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Set up Python venv
+        shell: bash
+        run: |
+          uv venv --seed -p 3.12
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            source .venv/bin/activate
+          else
+            source .venv/Scripts/activate
+          fi
+          uv pip install pyarrow
+          uv pip install -e apis/python/node
+          uv pip install ruff pytest
+
+      - name: "Test Python template project"
+        timeout-minutes: 80
+        shell: bash
+        run: |
+          adora new test_python_project --lang python --internal-create-with-path-dependencies
+          cd test_python_project
+          adora build dataflow.yml --uv
+          uv run ruff check .
+          uv run pytest
+          export OPERATING_MODE=SAVE
+          adora build dataflow.yml --uv
+          adora run dataflow.yml --uv --stop-after 10s
+          cd ..
+
+      - name: "Test Python Node example"
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          adora build examples/python-dataflow/dataflow.yml --uv
+          adora run examples/python-dataflow/dataflow.yml --uv --stop-after 10s
+
+      - name: "Test Python Operator example"
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          adora build examples/python-operator-dataflow/dataflow.yml --uv
+          adora run examples/python-operator-dataflow/dataflow.yml --uv --stop-after 10s
+
+      - name: "Test C template project"
+        timeout-minutes: 45
+        shell: bash
+        if: runner.os == 'Linux'
+        run: |
+          adora new test_c_project --lang c --internal-create-with-path-dependencies
+          cd test_c_project
+          cmake -B build
+          cmake --build build
+          cmake --install build
+          adora run dataflow.yml --stop-after 10s
+
+      - name: "Test C++ template project"
+        timeout-minutes: 45
+        shell: bash
+        if: runner.os == 'Linux'
+        run: |
+          adora new test_cxx_project --lang cxx --internal-create-with-path-dependencies
+          cd test_cxx_project
+          cmake -B build
+          cmake --build build
+          cmake --install build
+          adora run dataflow.yml --stop-after 10s
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -89,6 +292,104 @@ jobs:
         run: >
           cargo test --test fault-tolerance-e2e -- --test-threads=1
         timeout-minutes: 15
+
+  # ===== Cross-compilation checks =====
+  # Restored from old CI — verifies the project compiles for key targets.
+  cross-check:
+    name: Cross-check (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: >
+          cargo check --target ${{ matrix.target }} --all
+          --exclude adora-node-api-python
+          --exclude adora-operator-api-python
+          --exclude adora-ros2-bridge-python
+
+  # ===== ROS2 bridge examples =====
+  # Restored from old CI — tests ROS2 integration on Ubuntu with Humble.
+  ros2-bridge:
+    name: ROS2 Bridge Examples
+    runs-on: ubuntu-latest
+    needs: test
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+      - run: 'source /opt/ros/humble/setup.bash && echo AMENT_PREFIX_PATH=${AMENT_PREFIX_PATH} >> "$GITHUB_ENV"'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install pyarrow
+        run: pip install pyarrow
+      - name: Test ROS2 bridge
+        run: cargo test -p adora-ros2-bridge-python
+      - name: Rust ROS2 Bridge example
+        timeout-minutes: 30
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          source /opt/ros/humble/setup.bash &&
+          cargo run -p adora-ros2-bridge --example rust-ros2-dataflow
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python ROS2 Bridge example
+        timeout-minutes: 30
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          source /opt/ros/humble/setup.bash &&
+          uv venv --seed -p 3.12
+          source .venv/bin/activate
+          uv pip install -e apis/python/node
+          uv pip install pyarrow
+          cargo run -p adora-ros2-bridge --example python-ros2-dataflow
+      - name: "C++ ROS2 Bridge example"
+        timeout-minutes: 30
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          source /opt/ros/humble/setup.bash &&
+          cargo run -p adora-ros2-bridge --example cxx-ros2-dataflow
 
   bench:
     name: Benchmark regression check
