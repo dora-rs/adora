@@ -90,6 +90,39 @@ jobs:
           cargo test --test fault-tolerance-e2e -- --test-threads=1
         timeout-minutes: 15
 
+  examples:
+    name: Examples (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    needs: test
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build -p adora-cli --release
+      - name: Install CLI (Linux)
+        if: runner.os == 'Linux'
+        run: cp target/release/adora /usr/local/bin/adora
+      - name: Install CLI (macOS)
+        if: runner.os == 'macOS'
+        run: cp target/release/adora /usr/local/bin/adora
+      - name: Build examples
+        timeout-minutes: 30
+        run: cargo build --examples
+      - name: Rust Dataflow example
+        timeout-minutes: 30
+        run: cargo run --example rust-dataflow
+      - name: Multiple Daemons example
+        timeout-minutes: 30
+        run: cargo run --example multiple-daemons
+
   bench:
     name: Benchmark regression check
     runs-on: ubuntu-latest
