@@ -306,8 +306,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            gcc: gcc-aarch64-linux-gnu
           - runner: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
+            gcc: gcc-arm-linux-gnueabihf
           - runner: macos-latest
             target: aarch64-apple-darwin
           - runner: macos-latest
@@ -320,6 +322,9 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      - name: Install cross-compilation toolchain
+        if: matrix.gcc
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.gcc }}
       - name: Check
         run: >
           cargo check --target ${{ matrix.target }} --all
@@ -331,7 +336,7 @@ jobs:
   # Restored from old CI — tests ROS2 integration on Ubuntu with Humble.
   ros2-bridge:
     name: ROS2 Bridge Examples
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: test
     timeout-minutes: 45
     steps:
