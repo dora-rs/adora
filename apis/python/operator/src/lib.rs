@@ -166,6 +166,7 @@ impl PyEvent {
             Event::Reload { .. } => "RELOAD",
             Event::ParamUpdate { .. } => "PARAM_UPDATE",
             Event::ParamDeleted { .. } => "PARAM_DELETED",
+            Event::NodeFailed { .. } => "NODE_FAILED",
             Event::Error(_) => "ERROR",
             // `Event` is `#[non_exhaustive]`; surface genuinely new variants
             // as UNKNOWN rather than failing to build on future dora upgrades.
@@ -182,6 +183,7 @@ impl PyEvent {
             Event::Reload { operator_id } => operator_id.as_ref().map(|id| id.as_ref()),
             Event::ParamUpdate { key, .. } => Some(key.as_str()),
             Event::ParamDeleted { key } => Some(key.as_str()),
+            Event::NodeFailed { source_node_id, .. } => Some(source_node_id.as_ref()),
             Event::Stop(cause) => match cause {
                 StopCause::Manual => Some("MANUAL"),
                 StopCause::AllInputsClosed => Some("ALL_INPUTS_CLOSED"),

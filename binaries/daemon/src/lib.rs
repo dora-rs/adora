@@ -3595,6 +3595,53 @@ impl Daemon {
                         }
                     }
                 } else {
+                    // Send NodeFailed events to downstream nodes when a
+                    // node exits with a non-zero exit code (matches
+                    // upstream dora behavior for error propagation).
+                    if node_result.is_err() {
+                        if let Some(dataflow) = self.running.get(&dataflow_id) {
+                            let error_msg = match &node_result {
+                                Err(e) => format!("{e}"),
+                                Ok(()) => unreachable!(),
+                            };
+                            // Collect outputs and receivers
+                            let outputs: Vec<DataId> = dataflow
+                                .mappings
+                                .keys()
+                                .filter(|m| m.0 == node_id)
+                                .map(|m| m.1.clone())
+                                .collect();
+                            let mut affected_by_receiver: std::collections::BTreeMap<
+                                NodeId,
+                                Vec<DataId>,
+                            > = std::collections::BTreeMap::new();
+                            for output_id in &outputs {
+                                let key = OutputId(node_id.clone(), output_id.clone());
+                                if let Some(receivers) = dataflow.mappings.get(&key) {
+                                    for (recv_id, input_id) in receivers {
+                                        affected_by_receiver
+                                            .entry(recv_id.clone())
+                                            .or_default()
+                                            .push(input_id.clone());
+                                    }
+                                }
+                            }
+                            for (recv_id, affected_ids) in affected_by_receiver {
+                                if let Some(channel) = dataflow.subscribe_channels.get(&recv_id) {
+                                    let _ = send_with_timestamp(
+                                        channel,
+                                        NodeEvent::NodeFailed {
+                                            affected_input_ids: affected_ids,
+                                            error: error_msg.clone(),
+                                            source_node_id: node_id.clone(),
+                                        },
+                                        &self.clock,
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     self.dataflow_node_results
                         .entry(dataflow_id)
                         .or_default()
