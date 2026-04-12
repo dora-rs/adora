@@ -6,8 +6,8 @@ use std::{
 use arrow::pyarrow::ToPyArrow;
 use chrono::{DateTime, Utc};
 use dora_node_api::{
-    merged::{MergeExternalSend, MergedEvent},
     DoraNode, Event, EventStream, Metadata, MetadataParameters, Parameter, StopCause,
+    merged::{MergeExternalSend, MergedEvent},
 };
 use eyre::{Context, Result};
 use futures::{Stream, StreamExt};
@@ -418,7 +418,7 @@ mod tests {
     use aligned_vec::{AVec, ConstAlign};
     use arrow::{
         array::{
-            ArrayData, ArrayRef, BooleanArray, Float64Array, Int32Array, Int64Array, Int8Array,
+            ArrayData, ArrayRef, BooleanArray, Float64Array, Int8Array, Int32Array, Int64Array,
             ListArray, StructArray,
         },
         buffer::Buffer,
@@ -513,8 +513,8 @@ mod tests {
     mod py_event_types {
         use super::super::PyEvent;
         use dora_node_api::{
-            dora_core::config::{DataId, NodeId, OperatorId},
             Event,
+            dora_core::config::{DataId, NodeId, OperatorId},
         };
 
         #[test]
