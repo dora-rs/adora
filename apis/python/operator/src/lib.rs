@@ -6,8 +6,8 @@ use std::{
 use arrow::pyarrow::ToPyArrow;
 use chrono::{DateTime, Utc};
 use dora_node_api::{
-    DoraNode, Event, EventStream, Metadata, MetadataParameters, Parameter, StopCause,
     merged::{MergeExternalSend, MergedEvent},
+    DoraNode, Event, EventStream, Metadata, MetadataParameters, Parameter, StopCause,
 };
 use eyre::{Context, Result};
 use futures::{Stream, StreamExt};
@@ -215,6 +215,18 @@ impl PyEvent {
                     .unbind();
                 Ok(Some(obj))
             }
+            MergedEvent::Dora(Event::NodeFailed {
+                affected_input_ids,
+                error,
+                source_node_id,
+            }) => {
+                let dict = pyo3::types::PyDict::new(py);
+                dict.set_item("source_node_id", source_node_id.as_ref())?;
+                dict.set_item("error", error.as_str())?;
+                let ids: Vec<&str> = affected_input_ids.iter().map(|id| id.as_ref()).collect();
+                dict.set_item("affected_input_ids", ids)?;
+                Ok(Some(dict.unbind().into()))
+            }
             _ => Ok(None),
         }
     }
@@ -406,7 +418,7 @@ mod tests {
     use aligned_vec::{AVec, ConstAlign};
     use arrow::{
         array::{
-            ArrayData, ArrayRef, BooleanArray, Float64Array, Int8Array, Int32Array, Int64Array,
+            ArrayData, ArrayRef, BooleanArray, Float64Array, Int32Array, Int64Array, Int8Array,
             ListArray, StructArray,
         },
         buffer::Buffer,
@@ -501,8 +513,8 @@ mod tests {
     mod py_event_types {
         use super::super::PyEvent;
         use dora_node_api::{
-            Event,
             dora_core::config::{DataId, NodeId, OperatorId},
+            Event,
         };
 
         #[test]
