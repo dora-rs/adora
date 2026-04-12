@@ -140,10 +140,7 @@ jobs:
         run: cargo run --example rust-dataflow
       - name: Rust Git Dataflow example
         timeout-minutes: 30
-        shell: bash
-        run: |
-          dora build examples/rust-dataflow-git/dataflow.yml
-          dora run examples/rust-dataflow-git/dataflow.yml --stop-after 10s
+        run: cargo run --example rust-dataflow-git
       - name: Multiple Daemons example
         timeout-minutes: 30
         run: cargo run --example multiple-daemons
@@ -293,6 +290,9 @@ jobs:
         shell: bash
         run: |
           dora build examples/python-dataflow/dataflow_dynamic.yml --uv
+          # dora-hub deps pull dora-rs from PyPI, overriding local build;
+          # re-install local version to avoid version mismatch.
+          uv pip install -e apis/python/node
           dora up
           dora start examples/python-dataflow/dataflow_dynamic.yml --name ci-python-dynamic --detach --uv
           uv run opencv-plot
