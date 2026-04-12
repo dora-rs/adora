@@ -3598,27 +3598,14 @@ impl Daemon {
                     // Send NodeFailed events to downstream nodes when a
                     // node exits with a non-zero exit code (matches
                     // upstream dora behavior for error propagation).
-                    if node_result.is_err()
+                    if let Err(e) = &node_result
                         && let Some(dataflow) = self.running.get(&dataflow_id)
                     {
-                        let error_msg = match &node_result {
-                            Err(e) => format!("{e}"),
-                            Ok(()) => unreachable!(),
-                        };
-                        // Collect outputs and receivers
-                        let outputs: Vec<DataId> = dataflow
-                            .mappings
-                            .keys()
-                            .filter(|m| m.0 == node_id)
-                            .map(|m| m.1.clone())
-                            .collect();
-                        let mut affected_by_receiver: std::collections::BTreeMap<
-                            NodeId,
-                            Vec<DataId>,
-                        > = std::collections::BTreeMap::new();
-                        for output_id in &outputs {
-                            let key = OutputId(node_id.clone(), output_id.clone());
-                            if let Some(receivers) = dataflow.mappings.get(&key) {
+                        let error_msg = e.to_string();
+                        let mut affected_by_receiver: BTreeMap<NodeId, Vec<DataId>> =
+                            BTreeMap::new();
+                        for (output_id, receivers) in &dataflow.mappings {
+                            if output_id.0 == node_id {
                                 for (recv_id, input_id) in receivers {
                                     affected_by_receiver
                                         .entry(recv_id.clone())
