@@ -450,6 +450,23 @@ impl Daemon {
         labels: BTreeMap<String, String>,
         local_listen_port: u16,
     ) -> eyre::Result<()> {
+        Self::run_with_builds(
+            coordinator_ws_addr,
+            machine_id,
+            labels,
+            local_listen_port,
+            Default::default(),
+        )
+        .await
+    }
+
+    pub async fn run_with_builds(
+        coordinator_ws_addr: SocketAddr,
+        machine_id: Option<String>,
+        labels: BTreeMap<String, String>,
+        local_listen_port: u16,
+        initial_builds: BTreeMap<BuildId, BuildInfo>,
+    ) -> eyre::Result<()> {
         let clock = Arc::new(HLC::default());
         let mut ctrlc_events = set_up_ctrlc_handler(clock.clone())?;
         let mut reconnect_attempt = 0u32;
@@ -495,7 +512,7 @@ impl Daemon {
                         None,
                         clock.clone(),
                         Some(remote_daemon_events_tx),
-                        Default::default(),
+                        initial_builds.clone(),
                         log_destination,
                         None,
                     );

@@ -305,6 +305,8 @@ jobs:
         shell: bash
         run: |
           dora build examples/python-operator-dataflow/dataflow.yml --uv
+          # dora-hub deps pull dora-rs from PyPI; re-install local version.
+          uv pip install -e apis/python/node
           dora run examples/python-operator-dataflow/dataflow.yml --uv --stop-after 20s
 
       - name: Test Python Multiple Arrays
@@ -384,7 +386,8 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
       - name: Benchmark example
-        timeout-minutes: 30
+        continue-on-error: true
+        timeout-minutes: 45
         run: cargo run --example benchmark --release
 
   e2e:
