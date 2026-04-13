@@ -83,6 +83,8 @@ impl TypeDef {
         self.build_schema(|t| resolve_field_type(t, registry, 0))
     }
 
+    /// Fail-closed: if any declared field cannot be resolved, returns `None`
+    /// rather than a partial schema that could mask type errors.
     fn build_schema(&self, resolve: impl Fn(&str) -> Option<DataType>) -> Option<Schema> {
         if self.fields.is_empty() {
             return None;
@@ -90,11 +92,11 @@ impl TypeDef {
         let fields: Vec<Field> = self
             .fields
             .iter()
-            .filter_map(|f| {
+            .map(|f| {
                 let dt = resolve(&f.r#type)?;
                 Some(Field::new(&f.name, dt, f.nullable))
             })
-            .collect();
+            .collect::<Option<Vec<_>>>()?;
         if fields.is_empty() {
             return None;
         }
@@ -1246,5 +1248,76 @@ mod tests {
                 "{urn} has no resolvable schema"
             );
         }
+    }
+
+    #[test]
+    fn unresolvable_nested_field_returns_none() {
+        // A struct with an unknown nested type should fail closed (return None),
+        // not produce a partial schema.
+        let def = TypeDef {
+            arrow: "Struct".to_string(),
+            description: None,
+            params: vec![],
+            fields: vec![
+                FieldDef {
+                    name: "good".to_string(),
+                    r#type: "Float64".to_string(),
+                    nullable: true,
+                },
+                FieldDef {
+                    name: "bad".to_string(),
+                    r#type: "Nonexistent".to_string(),
+                    nullable: true,
+                },
+            ],
+            metadata: vec![],
+        };
+        let reg = TypeRegistry::new();
+        assert!(
+            def.to_arrow_schema_with_registry(&reg).is_none(),
+            "schema with unresolvable field should return None"
+        );
+    }
+
+    #[test]
+    fn ambiguous_short_name_in_nested_field_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("myproject").join("math");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("v1.yml"),
+            "types:\n  Vector3:\n    arrow: Struct\n    description: dup\n    fields:\n      - name: a\n        type: Float64\n",
+        )
+        .unwrap();
+        let mut reg = TypeRegistry::new();
+        reg.load_from_dir(dir.path()).unwrap();
+
+        // A struct referencing the now-ambiguous "Vector3" short name
+        let def = TypeDef {
+            arrow: "Struct".to_string(),
+            description: None,
+            params: vec![],
+            fields: vec![FieldDef {
+                name: "pos".to_string(),
+                r#type: "Vector3".to_string(),
+                nullable: true,
+            }],
+            metadata: vec![],
+        };
+        assert!(
+            def.to_arrow_schema_with_registry(&reg).is_none(),
+            "ambiguous short name should fail closed"
+        );
+    }
+
+    #[test]
+    fn parameterized_struct_schema_resolves() {
+        let reg = TypeRegistry::new();
+        // AudioFrame has fields + params; schema should resolve via registry
+        let def = reg
+            .resolve("std/media/v1/AudioFrame[sample_type=f32]")
+            .unwrap();
+        let schema = def.to_arrow_schema_with_registry(&reg).unwrap();
+        assert_eq!(schema.fields().len(), 3); // sample_rate, channels, data
     }
 }
