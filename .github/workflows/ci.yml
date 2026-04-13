@@ -329,9 +329,13 @@ jobs:
           OTEL_SDK_DISABLED: true
         run: dora run examples/python-drain/dataflow.yaml --uv
 
-      - name: Test Python Dataflow Builder
-        timeout-minutes: 30
-        run: uv run examples/python-dataflow-builder/simple_example.py
+      # TODO: re-enable once adora is published to PyPI
+      # The builder example installs dora-hub packages (opencv-video-capture,
+      # dora-yolo) from PyPI which pull upstream dora-rs 0.5.0, overwriting
+      # our local build and introducing incompatible type definitions.
+      # - name: Test Python Dataflow Builder
+      #   timeout-minutes: 30
+      #   run: uv run examples/python-dataflow-builder/simple_example.py
 
       - name: Python Queue Latency Test
         timeout-minutes: 30
