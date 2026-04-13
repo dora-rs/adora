@@ -1973,6 +1973,7 @@ dependencies = [
  "dora-node-api",
  "dora-operator-api-python",
  "dora-ros2-bridge-python",
+ "dora-runtime",
  "eyre",
  "flume 0.10.14",
  "futures",

@@ -762,10 +762,19 @@ impl Node {
     }
 }
 
+/// Start a runtime for Operators
+///
+/// :rtype: None
+#[pyfunction]
+pub fn start_runtime() -> eyre::Result<()> {
+    dora_runtime::main().wrap_err("Dora Runtime raised an error.")
+}
+
 #[pymodule]
 fn dora(_py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     dora_ros2_bridge_python::create_dora_ros2_bridge_module(&m)?;
 
+    m.add_function(wrap_pyfunction!(start_runtime, &m)?)?;
     m.add_class::<Node>()?;
     m.setattr("__version__", env!("CARGO_PKG_VERSION"))?;
     m.setattr("__author__", "Dora-rs Authors")?;
