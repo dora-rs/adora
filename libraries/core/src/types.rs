@@ -97,9 +97,6 @@ impl TypeDef {
                 Some(Field::new(&f.name, dt, f.nullable))
             })
             .collect::<Option<Vec<_>>>()?;
-        if fields.is_empty() {
-            return None;
-        }
         Some(Schema::new(fields))
     }
 }
@@ -162,15 +159,11 @@ fn resolve_field_type(type_str: &str, registry: &TypeRegistry, depth: u8) -> Opt
     let fields: Vec<Field> = def
         .fields
         .iter()
-        .filter_map(|f| {
+        .map(|f| {
             let dt = resolve_field_type(&f.r#type, registry, depth + 1)?;
             Some(Field::new(&f.name, dt, f.nullable))
         })
-        .collect();
-
-    if fields.is_empty() {
-        return None;
-    }
+        .collect::<Option<Vec<_>>>()?;
 
     Some(DataType::Struct(Fields::from(fields)))
 }
