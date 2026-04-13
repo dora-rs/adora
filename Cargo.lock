@@ -1969,6 +1969,7 @@ version = "0.2.1"
 dependencies = [
  "arrow",
  "chrono",
+ "dora-cli",
  "dora-message",
  "dora-node-api",
  "dora-operator-api-python",
