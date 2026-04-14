@@ -240,8 +240,11 @@ jobs:
   file-issue-on-failure:
     name: File issue on nightly failure
     runs-on: ubuntu-latest
-    needs: [smoke-suite, log-sinks, service-action, streaming, record-replay]
-    if: failure() && github.event_name == 'schedule'
+    needs: [build-cli, smoke-suite, log-sinks, service-action, streaming, record-replay]
+    # `always() && contains(needs.*.result, 'failure')` covers both direct
+    # failures and the case where build-cli fails and downstream jobs get
+    # skipped (plain `failure()` would miss the skipped-cascade case).
+    if: always() && contains(needs.*.result, 'failure') && github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
       - name: Create or update regression issue
