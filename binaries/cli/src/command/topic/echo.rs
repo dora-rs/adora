@@ -21,6 +21,13 @@ use crate::{
 /// If no `DATA` is provided, all outputs from the selected dataflow will be
 /// echoed.
 ///
+/// Topic inspection requires debug mode on the dataflow:
+///
+/// ```yaml
+/// _unstable_debug:
+///   publish_all_messages_to_zenoh: true
+/// ```
+///
 /// Examples:
 ///
 /// Echo a single topic:
@@ -120,7 +127,7 @@ fn inspect(
                 }
                 if !hint_shown {
                     eprintln!(
-                        "{}: no topic data received during the wait window.",
+                        "{}: no topic data received during the wait window. Ensure `_unstable_debug.publish_all_messages_to_zenoh: true` is enabled on the dataflow.",
                         "hint".yellow().bold(),
                     );
                     hint_shown = true;

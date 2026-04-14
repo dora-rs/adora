@@ -26,6 +26,13 @@ use crate::{
 /// (average, min, max, stddev) over a sliding window. Average frequency (Hz)
 /// is derived from the average interval.
 ///
+/// Topic inspection requires debug mode on the dataflow:
+///
+/// ```yaml
+/// _unstable_debug:
+///   publish_all_messages_to_zenoh: true
+/// ```
+///
 /// If no `DATA` is provided, all outputs from the selected dataflow will be
 /// echoed.
 ///

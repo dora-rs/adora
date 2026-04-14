@@ -20,6 +20,13 @@ use crate::{
 /// Shows topic type, publisher, subscribers, and statistics (message count,
 /// bandwidth, publishing frequency).
 ///
+/// Topic inspection requires debug mode on the dataflow:
+///
+/// ```yaml
+/// _unstable_debug:
+///   publish_all_messages_to_zenoh: true
+/// ```
+///
 /// Examples:
 ///
 /// Get info for a single topic:

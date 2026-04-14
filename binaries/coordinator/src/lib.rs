@@ -1629,8 +1629,9 @@ async fn start_inner(
                     topics,
                     found_tx,
                 } => {
-                    let found =
-                        topic_outputs_by_daemon(&running_dataflows, dataflow_id, &topics).is_ok();
+                    let found = topic_outputs_by_daemon(&running_dataflows, dataflow_id, &topics)
+                        .is_ok()
+                        && topic_debug_enabled(&running_dataflows, dataflow_id).unwrap_or(false);
                     let _ = found_tx.send(found);
                 }
                 ControlEvent::TopicUnsubscribe {
@@ -1811,7 +1812,7 @@ async fn start_inner(
                 subscription_id,
                 payload,
             } => {
-                tracing::info!(
+                tracing::trace!(
                     %dataflow_id,
                     %subscription_id,
                     bytes = payload.len(),
@@ -2218,6 +2219,16 @@ fn topic_outputs_by_daemon(
     Ok(outputs_by_daemon)
 }
 
+fn topic_debug_enabled(
+    running_dataflows: &HashMap<DataflowId, RunningDataflow>,
+    dataflow_id: DataflowId,
+) -> eyre::Result<bool> {
+    let dataflow = running_dataflows
+        .get(&dataflow_id)
+        .wrap_err_with(|| format!("no running dataflow with ID `{dataflow_id}`"))?;
+    Ok(dataflow.descriptor.debug.publish_all_messages_to_zenoh)
+}
+
 async fn start_topic_debug_stream(
     running_dataflows: &mut HashMap<DataflowId, RunningDataflow>,
     daemon_connections: &mut DaemonConnections,
@@ -2227,8 +2238,22 @@ async fn start_topic_debug_stream(
     clock: &HLC,
 ) -> eyre::Result<Uuid> {
     let outputs_by_daemon = topic_outputs_by_daemon(running_dataflows, dataflow_id, &topics)?;
-    let outputs_by_daemon_for_state = outputs_by_daemon.clone();
+    if !topic_debug_enabled(running_dataflows, dataflow_id)? {
+        eyre::bail!(
+            "topic inspection requires `_unstable_debug.publish_all_messages_to_zenoh: true`"
+        );
+    }
     let subscription_id = Uuid::new_v4();
+    running_dataflows
+        .get_mut(&dataflow_id)
+        .wrap_err_with(|| format!("no running dataflow with ID `{dataflow_id}`"))?
+        .topic_subscribers
+        .insert(
+            subscription_id,
+            topic_subscriber::TopicSubscriber::new(outputs_by_daemon.clone(), sender),
+        );
+
+    let mut started_daemons = Vec::new();
     for (daemon_id, outputs) in outputs_by_daemon {
         let connection = daemon_connections
             .get_mut(&daemon_id)
@@ -2249,23 +2274,83 @@ async fn start_topic_debug_stream(
         let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
             .wrap_err("failed to deserialize start-topic-debug-stream reply")?;
         match reply {
-            DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())) => {}
+            DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())) => {
+                started_daemons.push(daemon_id);
+            }
             DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(err)) => {
+                rollback_topic_debug_stream(
+                    running_dataflows,
+                    daemon_connections,
+                    dataflow_id,
+                    subscription_id,
+                    &started_daemons,
+                    clock,
+                )
+                .await?;
                 eyre::bail!("{err}");
             }
-            other => eyre::bail!("unexpected start-topic-debug-stream reply: {other:?}"),
+            other => {
+                rollback_topic_debug_stream(
+                    running_dataflows,
+                    daemon_connections,
+                    dataflow_id,
+                    subscription_id,
+                    &started_daemons,
+                    clock,
+                )
+                .await?;
+                eyre::bail!("unexpected start-topic-debug-stream reply: {other:?}");
+            }
         }
     }
 
-    let dataflow = running_dataflows
-        .get_mut(&dataflow_id)
-        .wrap_err_with(|| format!("no running dataflow with ID `{dataflow_id}`"))?;
-    dataflow.topic_subscribers.insert(
-        subscription_id,
-        topic_subscriber::TopicSubscriber::new(outputs_by_daemon_for_state, sender),
-    );
-
     Ok(subscription_id)
+}
+
+async fn rollback_topic_debug_stream(
+    running_dataflows: &mut HashMap<DataflowId, RunningDataflow>,
+    daemon_connections: &mut DaemonConnections,
+    dataflow_id: DataflowId,
+    subscription_id: Uuid,
+    started_daemons: &[DaemonId],
+    clock: &HLC,
+) -> eyre::Result<()> {
+    let Some(subscriber) = running_dataflows
+        .get_mut(&dataflow_id)
+        .and_then(|dataflow| dataflow.topic_subscribers.remove(&subscription_id))
+    else {
+        return Ok(());
+    };
+    let _outputs_by_daemon = subscriber.outputs_by_daemon().clone();
+
+    for daemon_id in started_daemons {
+        let Some(connection) = daemon_connections.get_mut(daemon_id).cloned() else {
+            continue;
+        };
+        let message = serde_json::to_vec(&Timestamped {
+            inner: DaemonCoordinatorEvent::StopTopicDebugStream {
+                dataflow_id,
+                subscription_id,
+            },
+            timestamp: clock.new_timestamp(),
+        })?;
+        let reply_raw = connection
+            .send_and_receive(&message)
+            .await
+            .wrap_err("failed to roll back start-topic-debug-stream message")?;
+        let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
+            .wrap_err("failed to deserialize rollback stop-topic-debug-stream reply")?;
+        match reply {
+            DaemonCoordinatorReply::StopTopicDebugStreamResult(Ok(())) => {}
+            DaemonCoordinatorReply::StopTopicDebugStreamResult(Err(err)) => {
+                tracing::warn!(%daemon_id, %subscription_id, "failed to roll back topic debug stream: {err}");
+            }
+            other => {
+                tracing::warn!(%daemon_id, %subscription_id, "unexpected rollback reply: {other:?}");
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn stop_topic_debug_stream(
@@ -3048,10 +3133,9 @@ mod tests {
         daemon_connections.add(daemon_id.clone(), connection);
 
         let mut running_dataflows = HashMap::new();
-        running_dataflows.insert(
-            dataflow_id,
-            test_running_dataflow(dataflow_id, daemon_id, node_id.clone()),
-        );
+        let mut dataflow = test_running_dataflow(dataflow_id, daemon_id, node_id.clone());
+        dataflow.descriptor.debug.publish_all_messages_to_zenoh = true;
+        running_dataflows.insert(dataflow_id, dataflow);
         let expected_node_id = node_id.clone();
         let expected_data_id = data_id.clone();
         let seen_subscription = Arc::new(tokio::sync::Mutex::new(None::<Uuid>));
@@ -3113,6 +3197,110 @@ mod tests {
                 .expect("daemon mapping should exist"),
             &vec![(node_id, data_id)]
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn start_topic_debug_stream_rolls_back_on_daemon_error() {
+        #[derive(serde::Deserialize)]
+        struct OutboundRaw {
+            id: String,
+            params: Timestamped<DaemonCoordinatorEvent>,
+        }
+
+        let dataflow_id = Uuid::new_v4();
+        let daemon_id_a = DaemonId::new(Some("daemon-a".to_string()));
+        let daemon_id_b = DaemonId::new(Some("daemon-b".to_string()));
+        let node_id_a: dora_message::id::NodeId = "sender".to_string().into();
+        let node_id_b: dora_message::id::NodeId = "sink".to_string().into();
+        let data_id: dora_core::config::DataId = "message".to_string().into();
+        let (frame_tx, _frame_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4);
+
+        let mut daemon_connections = DaemonConnections::default();
+        let mut daemon_tasks = Vec::new();
+        for (daemon_id, should_fail) in [(daemon_id_a.clone(), false), (daemon_id_b.clone(), true)]
+        {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
+            let pending_replies = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+            let connection =
+                crate::state::DaemonConnection::new(tx, pending_replies.clone(), BTreeMap::new());
+            daemon_connections.add(daemon_id, connection);
+
+            daemon_tasks.push(tokio::spawn(async move {
+                while let Some(outbound) = rx.recv().await {
+                    let outbound_raw: OutboundRaw = serde_json::from_str(&outbound).unwrap();
+                    let request_id = Uuid::parse_str(&outbound_raw.id).expect("valid request id");
+                    let reply = match outbound_raw.params.inner {
+                        DaemonCoordinatorEvent::StartTopicDebugStream { .. } if should_fail => {
+                            serde_json::to_string(
+                                &DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(
+                                    "daemon rejected debug stream".to_string(),
+                                )),
+                            )
+                            .unwrap()
+                        }
+                        DaemonCoordinatorEvent::StartTopicDebugStream { .. } => {
+                            serde_json::to_string(
+                                &DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())),
+                            )
+                            .unwrap()
+                        }
+                        DaemonCoordinatorEvent::StopTopicDebugStream { .. } => {
+                            serde_json::to_string(
+                                &DaemonCoordinatorReply::StopTopicDebugStreamResult(Ok(())),
+                            )
+                            .unwrap()
+                        }
+                        other => panic!("unexpected daemon event during rollback test: {other:?}"),
+                    };
+                    let reply_tx = pending_replies
+                        .lock()
+                        .await
+                        .remove(&request_id)
+                        .expect("pending reply sender should exist");
+                    let _ = reply_tx.send(reply);
+                }
+            }));
+        }
+
+        let mut running_dataflows = HashMap::new();
+        let mut dataflow =
+            test_running_dataflow(dataflow_id, daemon_id_a.clone(), node_id_a.clone());
+        dataflow.descriptor.debug.publish_all_messages_to_zenoh = true;
+        dataflow
+            .node_to_daemon
+            .insert(node_id_b.clone(), daemon_id_b.clone());
+        let mut descriptor_json = serde_json::to_value(&dataflow.descriptor).unwrap();
+        descriptor_json
+            .get_mut("nodes")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("descriptor nodes array")
+            .push(serde_json::json!({
+                "id": node_id_b,
+                "outputs": [data_id.clone()],
+            }));
+        dataflow.descriptor = serde_json::from_value(descriptor_json).unwrap();
+        running_dataflows.insert(dataflow_id, dataflow);
+
+        let err = start_topic_debug_stream(
+            &mut running_dataflows,
+            &mut daemon_connections,
+            dataflow_id,
+            vec![(node_id_a, data_id.clone()), (node_id_b, data_id)],
+            frame_tx,
+            &HLC::default(),
+        )
+        .await
+        .expect_err("subscription should fail");
+
+        assert!(format!("{err:#}").contains("daemon rejected debug stream"));
+        assert!(
+            running_dataflows[&dataflow_id].topic_subscribers.is_empty(),
+            "failed subscription should be rolled back"
+        );
+
+        for task in daemon_tasks {
+            task.abort();
+        }
     }
 
     #[test]

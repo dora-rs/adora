@@ -2932,6 +2932,7 @@ impl Daemon {
         let output_id_key = OutputId(node_id.clone(), output_id.clone());
         let remote_receivers = dataflow.open_external_mappings.contains(&output_id_key)
             || dataflow.publish_all_messages_to_zenoh;
+        let has_debug_watchers = dataflow.debug_topic_watchers.contains_key(&output_id_key);
         let data_bytes = send_output_to_local_receivers(
             node_id.clone(),
             output_id.clone(),
@@ -2943,6 +2944,10 @@ impl Daemon {
             remote_receivers,
         )
         .await?;
+
+        if !remote_receivers && !has_debug_watchers {
+            return Ok(());
+        }
 
         let output_id = output_id_key;
         let event = InterDaemonEvent::Output {
@@ -2959,8 +2964,10 @@ impl Daemon {
         .serialize()
         .wrap_err("failed to serialize inter-daemon event")?;
 
-        self.send_topic_debug_frames(dataflow_id, &output_id, &serialized_event)
-            .await?;
+        if has_debug_watchers {
+            self.send_topic_debug_frames(dataflow_id, &output_id, &serialized_event)
+                .await?;
+        }
 
         if remote_receivers {
             self.send_to_remote_receivers(dataflow_id, &output_id, serialized_event)
@@ -3053,10 +3060,30 @@ impl Daemon {
                 },
                 timestamp: self.clock.new_timestamp(),
             })?;
-            sender
-                .send_event(&message)
-                .await
-                .wrap_err("failed to send topic debug frame to coordinator")?;
+            match sender.try_send_event(&message) {
+                Ok(()) => {}
+                Err(crate::coordinator::TrySendEventError::Full) => {
+                    tracing::warn!(
+                        %dataflow_id,
+                        output = %format!("{}/{}", output_id.0, output_id.1),
+                        %subscription_id,
+                        "dropping topic debug frame because coordinator WS send channel is full"
+                    );
+                }
+                Err(crate::coordinator::TrySendEventError::Closed) => {
+                    tracing::warn!(
+                        %dataflow_id,
+                        output = %format!("{}/{}", output_id.0, output_id.1),
+                        %subscription_id,
+                        "dropping topic debug frame because coordinator WS send channel is closed"
+                    );
+                }
+                Err(crate::coordinator::TrySendEventError::InvalidUtf8(err)) => {
+                    return Err(eyre!(
+                        "failed to encode topic debug frame for coordinator: {err}"
+                    ));
+                }
+            }
         }
 
         Ok(())

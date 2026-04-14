@@ -123,8 +123,6 @@ fn start_mock_topic_server(subscription_id: Uuid, payload: Vec<u8>) -> u16 {
                         .send(Message::Text(response.to_string().into()))
                         .await
                         .expect("send topic subscribe reply");
-
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     let mut frame = subscription_id.as_bytes().to_vec();
                     frame.extend_from_slice(&payload);
                     ws_tx
@@ -272,7 +270,7 @@ fn cli_multiple_requests_same_session() {
 }
 
 #[test]
-fn cli_topic_subscription_receives_binary_frames_after_subscribe_returns() {
+fn cli_topic_subscription_receives_binary_frames_immediately_after_subscribe_ack() {
     let subscription_id = Uuid::new_v4();
     let expected_payload = b"topic-payload".to_vec();
     let port = start_mock_topic_server(subscription_id, expected_payload.clone());
