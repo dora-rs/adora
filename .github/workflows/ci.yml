@@ -485,6 +485,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: crate-ci/typos@master
 
+  schema-check:
+    name: Schema drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Regenerate and diff
+        run: |
+          cargo run -p dora-core --bin generate_schema
+          git diff --exit-code libraries/core/dora-schema.json
+
   # ===== Fast supply-chain gates =====
   # Only the cheap, deterministic QA gates run remotely. The deeper
   # QA suite (coverage, mutation testing, semver check) is laptop-only
