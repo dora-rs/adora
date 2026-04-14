@@ -2,7 +2,7 @@ use crate::{
     events::set_up_ctrlc_handler,
     handlers::{
         build_dataflow, dataflow_result, handle_destroy, reload_dataflow, resolve_name,
-        restart_node, retrieve_logs, send_heartbeat_message, send_log_message, send_topic_frame,
+        restart_node, retrieve_logs, send_heartbeat_message, send_log_message, send_topic_frames,
         start_dataflow, stop_dataflow, stop_node,
     },
     state::{ArchivedDataflow, CachedResult, ParamTarget, RunningBuild, RunningDataflow},
@@ -1809,17 +1809,17 @@ async fn start_inner(
             }
             Event::TopicDebugData {
                 dataflow_id,
-                subscription_id,
+                subscription_ids,
                 payload,
             } => {
                 tracing::trace!(
                     %dataflow_id,
-                    %subscription_id,
+                    subscriptions = subscription_ids.len(),
                     bytes = payload.len(),
                     "received topic debug frame from daemon"
                 );
                 if let Some(dataflow) = running_dataflows.get_mut(&dataflow_id) {
-                    send_topic_frame(&mut dataflow.topic_subscribers, subscription_id, payload)
+                    send_topic_frames(&mut dataflow.topic_subscribers, subscription_ids, payload)
                         .await;
                 }
             }

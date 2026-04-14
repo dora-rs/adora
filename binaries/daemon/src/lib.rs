@@ -3047,42 +3047,41 @@ impl Daemon {
         let Some(subscription_ids) = dataflow.debug_topic_watchers.get(output_id) else {
             return Ok(());
         };
+        let subscription_ids: Vec<_> = subscription_ids.iter().copied().collect();
 
-        for subscription_id in subscription_ids {
-            let message = serde_json::to_vec(&Timestamped {
-                inner: CoordinatorRequest::Event {
-                    daemon_id: self.daemon_id.clone(),
-                    event: DaemonEvent::TopicDebugData {
-                        dataflow_id,
-                        subscription_id: *subscription_id,
-                        payload: serialized_event.to_vec(),
-                    },
+        let message = serde_json::to_vec(&Timestamped {
+            inner: CoordinatorRequest::Event {
+                daemon_id: self.daemon_id.clone(),
+                event: DaemonEvent::TopicDebugData {
+                    dataflow_id,
+                    subscription_ids: subscription_ids.clone(),
+                    payload: serialized_event.to_vec(),
                 },
-                timestamp: self.clock.new_timestamp(),
-            })?;
-            match sender.try_send_event(&message) {
-                Ok(()) => {}
-                Err(crate::coordinator::TrySendEventError::Full) => {
-                    tracing::warn!(
-                        %dataflow_id,
-                        output = %format!("{}/{}", output_id.0, output_id.1),
-                        %subscription_id,
-                        "dropping topic debug frame because coordinator WS send channel is full"
-                    );
-                }
-                Err(crate::coordinator::TrySendEventError::Closed) => {
-                    tracing::warn!(
-                        %dataflow_id,
-                        output = %format!("{}/{}", output_id.0, output_id.1),
-                        %subscription_id,
-                        "dropping topic debug frame because coordinator WS send channel is closed"
-                    );
-                }
-                Err(crate::coordinator::TrySendEventError::InvalidUtf8(err)) => {
-                    return Err(eyre!(
-                        "failed to encode topic debug frame for coordinator: {err}"
-                    ));
-                }
+            },
+            timestamp: self.clock.new_timestamp(),
+        })?;
+        match sender.try_send_event(&message) {
+            Ok(()) => {}
+            Err(crate::coordinator::TrySendEventError::Full) => {
+                tracing::warn!(
+                    %dataflow_id,
+                    output = %format!("{}/{}", output_id.0, output_id.1),
+                    subscriptions = subscription_ids.len(),
+                    "dropping topic debug frame because coordinator WS send channel is full"
+                );
+            }
+            Err(crate::coordinator::TrySendEventError::Closed) => {
+                tracing::warn!(
+                    %dataflow_id,
+                    output = %format!("{}/{}", output_id.0, output_id.1),
+                    subscriptions = subscription_ids.len(),
+                    "dropping topic debug frame because coordinator WS send channel is closed"
+                );
+            }
+            Err(crate::coordinator::TrySendEventError::InvalidUtf8(err)) => {
+                return Err(eyre!(
+                    "failed to encode topic debug frame for coordinator: {err}"
+                ));
             }
         }
 

@@ -94,7 +94,7 @@ pub enum DaemonEvent {
     },
     TopicDebugData {
         dataflow_id: DataflowId,
-        subscription_id: uuid::Uuid,
+        subscription_ids: Vec<uuid::Uuid>,
         payload: Vec<u8>,
     },
     /// Daemon acknowledges state catch-up through a given sequence number.

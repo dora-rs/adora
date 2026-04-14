@@ -51,7 +51,7 @@ pub enum Event {
     },
     TopicDebugData {
         dataflow_id: Uuid,
-        subscription_id: Uuid,
+        subscription_ids: Vec<Uuid>,
         payload: Vec<u8>,
     },
     DaemonStatusReport {
