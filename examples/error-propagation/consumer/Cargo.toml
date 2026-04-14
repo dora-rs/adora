@@ -3,6 +3,7 @@ name = "error-propagation-consumer"
 version = "0.1.0"
 edition = "2021"
 rust-version.workspace = true
+publish = false
 
 [dependencies]
 dora-node-api = { workspace = true }

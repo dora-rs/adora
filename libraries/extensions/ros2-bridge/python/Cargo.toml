@@ -3,6 +3,7 @@ name = "dora-ros2-bridge-python"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
+description = "Python bindings for the dora ROS2 bridge"
 
 [dependencies]
 dora-ros2-bridge = { path = "..", default-features = false }

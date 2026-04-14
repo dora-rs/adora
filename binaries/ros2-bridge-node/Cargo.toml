@@ -3,6 +3,7 @@ name = "dora-ros2-bridge-node"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
+description = "Dora node that bridges ROS2 topics into dora dataflows"
 
 [[bin]]
 name = "dora-ros2-bridge-node"

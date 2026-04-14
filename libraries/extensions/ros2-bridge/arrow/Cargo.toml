@@ -3,6 +3,7 @@ name = "dora-ros2-bridge-arrow"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
+description = "Apache Arrow conversion utilities for the dora ROS2 bridge"
 
 [dependencies]
 dora-ros2-bridge-msg-gen = { path = "../msg-gen" }
