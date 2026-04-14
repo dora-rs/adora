@@ -295,11 +295,15 @@ jobs:
             echo "ERROR: cluster status succeeded after 'cluster down'"
             exit 1
           fi
-          # Verify no leftover processes (race-tolerant)
+          # Verify no leftover processes (race-tolerant). The actual
+          # invocations are `dora daemon --quiet` / `dora coordinator --quiet`
+          # — a single `dora` binary with subcommands, not separate
+          # `dora-daemon`/`dora-coordinator` binaries. Match the real
+          # command lines.
           sleep 1
-          if pgrep -f 'dora-daemon|dora-coordinator' > /dev/null; then
+          if pgrep -fa 'dora (daemon|coordinator)' > /dev/null; then
             echo "ERROR: leftover dora processes after cluster down:"
-            ps aux | grep -E 'dora-(daemon|coordinator)' | grep -v grep
+            pgrep -fa 'dora (daemon|coordinator)'
             exit 1
           fi
 
