@@ -67,7 +67,8 @@ pub struct Hz {
 
     /// Run for this many seconds without TUI, print final stats, and exit.
     /// Required when stdout is not a terminal (e.g. CI, scripting).
-    #[clap(long, value_name = "SECONDS")]
+    /// Must be at least 1.
+    #[clap(long, value_name = "SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
     duration: Option<u64>,
 
     #[clap(flatten)]

@@ -49,12 +49,14 @@ pub struct Echo {
     #[clap(long, value_name = "FORMAT", default_value_t = OutputFormat::Table)]
     pub format: OutputFormat,
 
-    /// Exit after this many messages (default: stream until interrupted)
-    #[clap(long, value_name = "N")]
-    pub count: Option<usize>,
+    /// Exit after this many messages (default: stream until interrupted).
+    /// Must be at least 1.
+    #[clap(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+    pub count: Option<u64>,
 
-    /// Exit after this many seconds (default: stream until interrupted)
-    #[clap(long, value_name = "SECONDS")]
+    /// Exit after this many seconds (default: stream until interrupted).
+    /// Must be at least 1.
+    #[clap(long, value_name = "SECONDS", value_parser = clap::value_parser!(u64).range(1..))]
     pub duration: Option<u64>,
 
     #[clap(flatten)]
@@ -79,7 +81,7 @@ fn inspect(
     coordinator: CoordinatorOptions,
     selector: TopicSelector,
     format: OutputFormat,
-    count: Option<usize>,
+    count: Option<u64>,
     duration: Option<u64>,
 ) -> eyre::Result<()> {
     let session = coordinator.connect()?;
@@ -96,7 +98,7 @@ fn inspect(
     const HINT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
     let mut hint_shown = false;
     let mut buf = Vec::with_capacity(1024);
-    let mut emitted: usize = 0;
+    let mut emitted: u64 = 0;
     let deadline = duration.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     loop {
         // Stop conditions: --count reached or --duration elapsed.
