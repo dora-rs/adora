@@ -37,6 +37,7 @@ the `nightly-regression` label but do not block PRs.
 | Streaming example (Python nodes) | `streaming` |
 | Record / replay round-trip | `record-replay` |
 | Cluster lifecycle (`cluster status`, `cluster down`) | `cluster-smoke` |
+| Inspection commands (`top --once`, `topic list/info/pub`) | `topic-and-top-smoke` |
 
 Run locally:
 ```bash

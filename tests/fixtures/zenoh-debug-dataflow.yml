@@ -1,0 +1,26 @@
+# Dataflow with `publish_all_messages_to_zenoh: true` enabled — required
+# for `dora topic echo`, `topic info`, and `topic pub` to inspect/inject
+# runtime messages. Used by the nightly TUI smoke job.
+#
+# Mirrors examples/rust-dataflow/dataflow.yml + adds the debug flag.
+nodes:
+  - id: rust-node
+    build: cargo build -p rust-dataflow-example-node
+    path: ../../target/debug/rust-dataflow-example-node
+    inputs:
+      tick: dora/timer/millis/10
+    outputs:
+      - random
+    output_types:
+      random: std/core/v1/UInt64
+
+  - id: rust-sink
+    build: cargo build -p rust-dataflow-example-sink
+    path: ../../target/debug/rust-dataflow-example-sink
+    inputs:
+      message: rust-node/random
+    input_types:
+      message: std/core/v1/UInt64
+
+_unstable_debug:
+  publish_all_messages_to_zenoh: true

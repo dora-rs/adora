@@ -307,10 +307,73 @@ jobs:
             exit 1
           fi
 
+  topic-and-top-smoke:
+    # Smoke-tests the inspection commands: `dora top --once`, `dora topic
+    # list/info/pub`. Each has a non-interactive mode (--once / built-in
+    # exit / --duration / --count). `topic echo` and `topic hz` stream
+    # without bound — tracked separately, need --duration/--count flags.
+    name: Topic & top inspection smoke
+    runs-on: ubuntu-latest
+    needs: build-cli
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Download dora CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: dora-cli
+          path: ./cli-bin
+      - name: Install CLI to PATH
+        run: |
+          chmod +x ./cli-bin/dora
+          echo "$PWD/cli-bin" >> "$GITHUB_PATH"
+      - name: Build rust-dataflow example nodes
+        run: cargo build -p rust-dataflow-example-node -p rust-dataflow-example-sink
+      - name: Start coordinator + daemon
+        run: |
+          dora up
+          sleep 2
+      - name: dora top --once with no dataflow returns valid JSON
+        run: |
+          # No dataflow running yet: must produce '[]' (valid empty JSON).
+          out=$(dora top --once || true)
+          echo "$out"
+          echo "$out" | grep -qE '^\[' || { echo "ERROR: top --once didn't produce JSON array"; exit 1; }
+      - name: Start a debug-enabled dataflow
+        run: |
+          dora start tests/fixtures/zenoh-debug-dataflow.yml --name tui-smoke --detach
+          sleep 5  # let nodes register and emit at least a few messages
+      - name: dora topic list (json)
+        run: |
+          out=$(dora topic list -d tui-smoke --format json)
+          echo "$out"
+          # JSON output should be parseable and contain known node/output IDs
+          echo "$out" | python3 -c "import json,sys; data=json.load(sys.stdin); assert any('rust-node' in str(t) for t in data), f'rust-node not in {data}'"
+      - name: dora topic info on rust-node/random (--duration 3)
+        run: |
+          dora topic info -d tui-smoke rust-node/random --duration 3 2>&1 | tee info.out
+          # Should produce stats output that mentions the topic
+          grep -q 'rust-node/random' info.out || { echo "ERROR: info output missing topic"; exit 1; }
+      - name: dora topic pub --count 3
+        run: |
+          dora topic pub -d tui-smoke rust-node/random '42' --count 3 2>&1 | tee pub.out
+          # Should successfully publish (exit 0). Output may vary; just
+          # assert no error keyword leaked through.
+          ! grep -qiE 'error|fail|panic' pub.out
+      - name: Stop dataflow + tear down
+        if: always()
+        run: |
+          dora stop --name tui-smoke --grace-duration 5s 2>/dev/null || true
+          dora destroy 2>/dev/null || true
+
   file-issue-on-failure:
     name: File issue on nightly failure
     runs-on: ubuntu-latest
-    needs: [build-cli, smoke-suite, log-sinks, service-action, streaming, record-replay, cluster-smoke]
+    needs: [build-cli, smoke-suite, log-sinks, service-action, streaming, record-replay, cluster-smoke, topic-and-top-smoke]
     # `always() && contains(needs.*.result, 'failure')` covers both direct
     # failures and the case where build-cli fails and downstream jobs get
     # skipped (plain `failure()` would miss the skipped-cascade case).
@@ -367,6 +430,7 @@ jobs:
           - streaming
           - record-replay
           - cluster-smoke
+          - topic-and-top-smoke
 
           See the run for per-job status and logs. Subsequent failures
           will comment on this issue instead of opening new ones. Close
