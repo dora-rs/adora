@@ -92,6 +92,11 @@ pub enum DaemonEvent {
         #[serde(default)]
         network: Option<NetworkMetrics>,
     },
+    TopicDebugData {
+        dataflow_id: DataflowId,
+        subscription_id: uuid::Uuid,
+        payload: Vec<u8>,
+    },
     /// Daemon acknowledges state catch-up through a given sequence number.
     StateCatchUpAck {
         dataflow_id: DataflowId,
@@ -197,4 +202,6 @@ pub enum DaemonCoordinatorReply {
     StopNodeResult(Result<(), String>),
     SetParamResult(Result<(), String>),
     DeleteParamResult(Result<(), String>),
+    StartTopicDebugStreamResult(Result<(), String>),
+    StopTopicDebugStreamResult(Result<(), String>),
 }

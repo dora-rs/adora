@@ -2,8 +2,8 @@ use crate::{
     events::set_up_ctrlc_handler,
     handlers::{
         build_dataflow, dataflow_result, handle_destroy, reload_dataflow, resolve_name,
-        restart_node, retrieve_logs, send_heartbeat_message, send_log_message, start_dataflow,
-        stop_dataflow, stop_node,
+        restart_node, retrieve_logs, send_heartbeat_message, send_log_message, send_topic_frame,
+        start_dataflow, stop_dataflow, stop_node,
     },
     state::{ArchivedDataflow, CachedResult, ParamTarget, RunningBuild, RunningDataflow},
 };
@@ -25,7 +25,7 @@ use dora_message::{
     daemon_to_coordinator::{DaemonCoordinatorReply, DataflowDaemonResult},
 };
 pub use events::{DaemonRequest, DataflowEvent, Event};
-use eyre::{Result, WrapErr, bail, eyre};
+use eyre::{ContextCompat, Result, WrapErr, bail, eyre};
 use futures::{Future, Stream, StreamExt, stream::FuturesUnordered};
 use futures_concurrency::stream::Merge;
 use indexmap::IndexMap;
@@ -41,6 +41,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio_stream::wrappers::ReceiverStream;
+use uuid::Uuid;
 
 const FALLBACK_REPLAY_BACKOFF: Duration = Duration::from_secs(5);
 
@@ -53,6 +54,7 @@ mod log_subscriber;
 mod otel_metrics;
 mod run;
 mod state;
+mod topic_subscriber;
 mod ws_control;
 mod ws_daemon;
 mod ws_server;
@@ -1607,21 +1609,45 @@ async fn start_inner(
                 ControlEvent::TopicSubscribe {
                     dataflow_id,
                     topics,
+                    sender,
+                    done_tx,
+                } => {
+                    let result = start_topic_debug_stream(
+                        &mut running_dataflows,
+                        &mut daemon_connections,
+                        dataflow_id,
+                        topics,
+                        sender,
+                        &clock,
+                    )
+                    .await
+                    .map_err(|err| format!("{err:?}"));
+                    let _ = done_tx.send(result);
+                }
+                ControlEvent::TopicCheck {
+                    dataflow_id,
+                    topics,
                     found_tx,
                 } => {
-                    let found = running_dataflows.get(&dataflow_id).is_some_and(|df| {
-                        if !df.descriptor.debug.publish_all_messages_to_zenoh {
-                            return false;
-                        }
-                        // Validate each requested topic exists in the descriptor
-                        topics.iter().all(|(node_id, data_id)| {
-                            df.descriptor
-                                .nodes
-                                .iter()
-                                .any(|node| node.id == *node_id && node.outputs.contains(data_id))
-                        })
-                    });
+                    let found =
+                        topic_outputs_by_daemon(&running_dataflows, dataflow_id, &topics).is_ok();
                     let _ = found_tx.send(found);
+                }
+                ControlEvent::TopicUnsubscribe {
+                    subscription_id,
+                    done_tx,
+                } => {
+                    if let Err(err) = stop_topic_debug_stream(
+                        &mut running_dataflows,
+                        &mut daemon_connections,
+                        subscription_id,
+                        &clock,
+                    )
+                    .await
+                    {
+                        tracing::warn!("failed to unsubscribe topic debug stream: {err:?}");
+                    }
+                    let _ = done_tx.send(());
                 }
             },
             Event::DaemonHeartbeatInterval => {
@@ -1778,6 +1804,22 @@ async fn start_inner(
                     } else {
                         send_log_message(&mut build.log_subscribers, &message).await;
                     }
+                }
+            }
+            Event::TopicDebugData {
+                dataflow_id,
+                subscription_id,
+                payload,
+            } => {
+                tracing::info!(
+                    %dataflow_id,
+                    %subscription_id,
+                    bytes = payload.len(),
+                    "received topic debug frame from daemon"
+                );
+                if let Some(dataflow) = running_dataflows.get_mut(&dataflow_id) {
+                    send_topic_frame(&mut dataflow.topic_subscribers, subscription_id, payload)
+                        .await;
                 }
             }
             Event::DaemonExit { daemon_id } => {
@@ -2141,6 +2183,137 @@ struct ParamReplaySummary {
     failed: usize,
 }
 
+fn topic_outputs_by_daemon(
+    running_dataflows: &HashMap<DataflowId, RunningDataflow>,
+    dataflow_id: DataflowId,
+    topics: &[(dora_message::id::NodeId, dora_message::id::DataId)],
+) -> eyre::Result<BTreeMap<DaemonId, Vec<(dora_message::id::NodeId, dora_message::id::DataId)>>> {
+    let dataflow = running_dataflows
+        .get(&dataflow_id)
+        .wrap_err_with(|| format!("no running dataflow with ID `{dataflow_id}`"))?;
+
+    let mut outputs_by_daemon: BTreeMap<
+        DaemonId,
+        Vec<(dora_message::id::NodeId, dora_message::id::DataId)>,
+    > = BTreeMap::new();
+    for (node_id, data_id) in topics {
+        let output_exists = dataflow
+            .descriptor
+            .nodes
+            .iter()
+            .any(|node| node.id == *node_id && node.outputs.contains(data_id));
+        if !output_exists {
+            eyre::bail!("no output `{node_id}/{data_id}` in dataflow `{dataflow_id}`");
+        }
+        let daemon_id = dataflow
+            .node_to_daemon
+            .get(node_id)
+            .wrap_err_with(|| format!("no daemon mapping found for node `{node_id}`"))?;
+        outputs_by_daemon
+            .entry(daemon_id.clone())
+            .or_default()
+            .push((node_id.clone(), data_id.clone()));
+    }
+
+    Ok(outputs_by_daemon)
+}
+
+async fn start_topic_debug_stream(
+    running_dataflows: &mut HashMap<DataflowId, RunningDataflow>,
+    daemon_connections: &mut DaemonConnections,
+    dataflow_id: DataflowId,
+    topics: Vec<(dora_message::id::NodeId, dora_message::id::DataId)>,
+    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    clock: &HLC,
+) -> eyre::Result<Uuid> {
+    let outputs_by_daemon = topic_outputs_by_daemon(running_dataflows, dataflow_id, &topics)?;
+    let outputs_by_daemon_for_state = outputs_by_daemon.clone();
+    let subscription_id = Uuid::new_v4();
+    for (daemon_id, outputs) in outputs_by_daemon {
+        let connection = daemon_connections
+            .get_mut(&daemon_id)
+            .wrap_err_with(|| format!("no daemon connection for daemon `{daemon_id}`"))?
+            .clone();
+        let message = serde_json::to_vec(&Timestamped {
+            inner: DaemonCoordinatorEvent::StartTopicDebugStream {
+                dataflow_id,
+                outputs,
+                subscription_id,
+            },
+            timestamp: clock.new_timestamp(),
+        })?;
+        let reply_raw = connection
+            .send_and_receive(&message)
+            .await
+            .wrap_err("failed to send start-topic-debug-stream message")?;
+        let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
+            .wrap_err("failed to deserialize start-topic-debug-stream reply")?;
+        match reply {
+            DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())) => {}
+            DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(err)) => {
+                eyre::bail!("{err}");
+            }
+            other => eyre::bail!("unexpected start-topic-debug-stream reply: {other:?}"),
+        }
+    }
+
+    let dataflow = running_dataflows
+        .get_mut(&dataflow_id)
+        .wrap_err_with(|| format!("no running dataflow with ID `{dataflow_id}`"))?;
+    dataflow.topic_subscribers.insert(
+        subscription_id,
+        topic_subscriber::TopicSubscriber::new(outputs_by_daemon_for_state, sender),
+    );
+
+    Ok(subscription_id)
+}
+
+async fn stop_topic_debug_stream(
+    running_dataflows: &mut HashMap<DataflowId, RunningDataflow>,
+    daemon_connections: &mut DaemonConnections,
+    subscription_id: Uuid,
+    clock: &HLC,
+) -> eyre::Result<()> {
+    let Some((dataflow_id, outputs_by_daemon)) =
+        running_dataflows.iter_mut().find_map(|(id, df)| {
+            df.topic_subscribers
+                .remove(&subscription_id)
+                .map(|subscriber| (*id, subscriber.outputs_by_daemon().clone()))
+        })
+    else {
+        return Ok(());
+    };
+
+    for (daemon_id, _) in outputs_by_daemon {
+        let connection = daemon_connections
+            .get_mut(&daemon_id)
+            .wrap_err_with(|| format!("no daemon connection for daemon `{daemon_id}`"))?
+            .clone();
+        let message = serde_json::to_vec(&Timestamped {
+            inner: DaemonCoordinatorEvent::StopTopicDebugStream {
+                dataflow_id,
+                subscription_id,
+            },
+            timestamp: clock.new_timestamp(),
+        })?;
+        let reply_raw = connection
+            .send_and_receive(&message)
+            .await
+            .wrap_err("failed to send stop-topic-debug-stream message")?;
+        let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
+            .wrap_err("failed to deserialize stop-topic-debug-stream reply")?;
+        match reply {
+            DaemonCoordinatorReply::StopTopicDebugStreamResult(Ok(())) => {}
+            DaemonCoordinatorReply::StopTopicDebugStreamResult(Err(err)) => {
+                eyre::bail!("{err}");
+            }
+            other => eyre::bail!("unexpected stop-topic-debug-stream reply: {other:?}"),
+        }
+    }
+
+    Ok(())
+}
+
 async fn handle_pruned_state_catchup_fallback(
     dataflow_id: DataflowId,
     dataflow: &mut RunningDataflow,
@@ -2424,19 +2597,18 @@ mod tests {
 
         let mut node_to_daemon = BTreeMap::new();
         node_to_daemon.insert(node_id, daemon_id);
+        let descriptor: Descriptor = serde_json::from_value(serde_json::json!({
+            "nodes": [{
+                "id": "sender",
+                "outputs": ["message"],
+            }]
+        }))
+        .expect("valid test descriptor");
 
         RunningDataflow {
             name: None,
             uuid: dataflow_id,
-            descriptor: Descriptor {
-                nodes: vec![],
-                communication: Default::default(),
-                deploy: None,
-                debug: Default::default(),
-                health_check_interval: None,
-                strict_types: None,
-                type_rules: vec![],
-            },
+            descriptor,
             daemons,
             pending_daemons: BTreeSet::new(),
             exited_before_subscribe: vec![],
@@ -2448,6 +2620,7 @@ mod tests {
             stop_reply_senders: vec![],
             buffered_log_messages: vec![],
             log_subscribers: vec![],
+            topic_subscribers: BTreeMap::new(),
             pending_spawn_results: BTreeSet::new(),
             created_at: 0,
             store_generation: 0,
@@ -2850,6 +3023,96 @@ mod tests {
         );
 
         daemon_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_topic_debug_stream_targets_source_daemon() {
+        #[derive(serde::Deserialize)]
+        struct OutboundRaw {
+            id: String,
+            method: String,
+            params: Timestamped<DaemonCoordinatorEvent>,
+        }
+
+        let dataflow_id = DataflowId::from(Uuid::new_v4());
+        let daemon_id = DaemonId::new(Some("m1".to_string()));
+        let node_id: dora_core::config::NodeId = "sender".to_string().into();
+        let data_id: dora_core::config::DataId = "message".to_string().into();
+        let (frame_tx, _frame_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4);
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
+        let pending_replies = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let connection =
+            crate::state::DaemonConnection::new(tx, pending_replies.clone(), BTreeMap::new());
+        let mut daemon_connections = DaemonConnections::default();
+        daemon_connections.add(daemon_id.clone(), connection);
+
+        let mut running_dataflows = HashMap::new();
+        running_dataflows.insert(
+            dataflow_id,
+            test_running_dataflow(dataflow_id, daemon_id, node_id.clone()),
+        );
+        let expected_node_id = node_id.clone();
+        let expected_data_id = data_id.clone();
+        let seen_subscription = Arc::new(tokio::sync::Mutex::new(None::<Uuid>));
+        let seen_subscription_task = seen_subscription.clone();
+
+        let daemon_task = tokio::spawn(async move {
+            let outbound = rx
+                .recv()
+                .await
+                .expect("daemon should receive topic stream command");
+            let outbound_raw: OutboundRaw = serde_json::from_str(&outbound).unwrap();
+            assert_eq!(outbound_raw.method, "daemon_command");
+            match outbound_raw.params.inner {
+                DaemonCoordinatorEvent::StartTopicDebugStream {
+                    dataflow_id: start_df,
+                    outputs,
+                    subscription_id,
+                } => {
+                    assert_eq!(start_df, dataflow_id);
+                    assert_eq!(outputs, vec![(expected_node_id, expected_data_id)]);
+                    *seen_subscription_task.lock().await = Some(subscription_id);
+                }
+                other => panic!("unexpected topic stream event: {other:?}"),
+            }
+
+            let request_id = Uuid::parse_str(&outbound_raw.id).expect("valid request id");
+            let reply =
+                serde_json::to_string(&DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())))
+                    .unwrap();
+            let reply_tx = pending_replies
+                .lock()
+                .await
+                .remove(&request_id)
+                .expect("pending reply sender should exist");
+            let _ = reply_tx.send(reply);
+        });
+
+        let subscription_id = start_topic_debug_stream(
+            &mut running_dataflows,
+            &mut daemon_connections,
+            dataflow_id,
+            vec![(node_id.clone(), data_id.clone())],
+            frame_tx,
+            &HLC::default(),
+        )
+        .await
+        .expect("subscription should succeed");
+
+        daemon_task.await.unwrap();
+        assert_eq!(Some(subscription_id), *seen_subscription.lock().await);
+        assert_eq!(
+            running_dataflows[&dataflow_id]
+                .topic_subscribers
+                .get(&subscription_id)
+                .expect("subscription should be stored")
+                .outputs_by_daemon()
+                .values()
+                .next()
+                .expect("daemon mapping should exist"),
+            &vec![(node_id, data_id)]
+        );
     }
 
     #[test]

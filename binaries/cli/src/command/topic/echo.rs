@@ -32,13 +32,6 @@ use crate::{
 /// Emit JSON lines:
 ///   dora topic echo -d my-dataflow robot1/pose --format json
 ///
-/// Note: The dataflow descriptor must include the following snippet so that
-/// runtime messages can be inspected:
-///
-/// ```yaml
-/// _unstable_debug:
-///   publish_all_messages_to_zenoh: true
-/// ```
 #[derive(Debug, Args)]
 #[clap(verbatim_doc_comment)]
 pub struct Echo {
@@ -127,9 +120,7 @@ fn inspect(
                 }
                 if !hint_shown {
                     eprintln!(
-                        "{}: no topic data received. Ensure your dataflow was started with \
-                         `--debug` or add the following to your dataflow YAML:\n\n  \
-                         _unstable_debug:\n    publish_all_messages_to_zenoh: true\n",
+                        "{}: no topic data received during the wait window.",
                         "hint".yellow().bold(),
                     );
                     hint_shown = true;

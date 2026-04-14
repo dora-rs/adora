@@ -5,6 +5,7 @@ use crate::{
         self, ArchivedDataflow, CachedResult, DaemonConnection, DaemonConnections, RunningBuild,
         RunningDataflow,
     },
+    topic_subscriber::TopicSubscriber,
 };
 use dora_core::{
     config::{NodeId, OperatorId},
@@ -27,6 +28,8 @@ use std::{
     time::Duration,
 };
 use uuid::Uuid;
+
+const MAX_TOPIC_DEBUG_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 // Resolve the dataflow name.
 pub(crate) fn resolve_name(
@@ -77,6 +80,31 @@ pub(crate) async fn send_log_message(
         }
     }
     log_subscribers.retain(|s| !s.is_closed());
+}
+
+pub(crate) async fn send_topic_frame(
+    topic_subscribers: &mut BTreeMap<Uuid, TopicSubscriber>,
+    subscription_id: Uuid,
+    payload: Vec<u8>,
+) {
+    if payload.len() > MAX_TOPIC_DEBUG_PAYLOAD_BYTES {
+        tracing::warn!(
+            "dropping oversized topic debug payload ({} bytes) for subscription {subscription_id}",
+            payload.len()
+        );
+        return;
+    }
+    if let Some(subscriber) = topic_subscribers.get_mut(&subscription_id) {
+        let mut frame = Vec::with_capacity(16 + payload.len());
+        frame.extend_from_slice(&subscription_id.into_bytes());
+        frame.extend_from_slice(&payload);
+        let send_result =
+            tokio::time::timeout(Duration::from_millis(100), subscriber.send_frame(frame)).await;
+        if send_result.is_err() {
+            subscriber.close();
+        }
+    }
+    topic_subscribers.retain(|_, s| !s.is_closed());
 }
 
 pub(crate) fn dataflow_result(
@@ -551,6 +579,7 @@ pub(crate) async fn start_dataflow(
         stop_reply_senders: Vec::new(),
         buffered_log_messages: Vec::new(),
         log_subscribers: Vec::new(),
+        topic_subscribers: BTreeMap::new(),
         daemon_ack_sequence: daemons.iter().map(|d| (d.clone(), 0)).collect(),
         pending_spawn_results: daemons,
         created_at: state::now_millis(),

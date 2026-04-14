@@ -40,13 +40,6 @@ use crate::{
 /// Measure all topics:
 ///   dora topic hz -d my-dataflow --window 10
 ///
-/// Note: The dataflow descriptor must include the following snippet so that
-/// runtime messages can be inspected:
-///
-/// ```yaml
-/// _unstable_debug:
-///   publish_all_messages_to_zenoh: true
-/// ```
 fn parse_window(s: &str) -> Result<usize, String> {
     let val: usize = s.parse().map_err(|e| format!("{e}"))?;
     if val == 0 {
