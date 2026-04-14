@@ -5,7 +5,7 @@
 
 .PHONY: qa qa-fast qa-full qa-tier1 \
         qa-fmt qa-audit qa-unwrap qa-clippy qa-test qa-coverage qa-mutants qa-semver \
-        qa-install
+        qa-ci-lint qa-install
 
 qa: qa-fast
 
@@ -52,6 +52,9 @@ qa-mutants:
 
 qa-semver:
 	@scripts/qa/semver.sh
+
+qa-ci-lint:
+	@scripts/qa/ci-lint.sh
 
 # One-shot tool installation
 
