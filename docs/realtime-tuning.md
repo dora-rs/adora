@@ -305,15 +305,32 @@ dora run examples/cpu-affinity-probe/dataflow.yml --stop-after 3s
 Only if the PR touches code that could affect jitter (daemon hot path,
 send/recv loops, allocator changes).
 
-```bash
-# Stock run
-dora run examples/benchmark/dataflow.yml --release --stop-after 30s \
-  > /tmp/stock.log 2>&1
+Both runs must go through an externally-started daemon so the `--rt`
+profile actually applies. `dora run` spawns its own embedded coordinator
+and daemon (see `binaries/cli/src/command/run.rs`) and will silently
+ignore the background `--rt` daemon, so use `dora start` instead.
 
-# --rt run
+```bash
+# Stock run — plain daemon, no --rt
+pkill -f "dora (coordinator|daemon)" 2>/dev/null; sleep 1
+dora coordinator &
+dora daemon &
+sleep 2
+dora start examples/benchmark/dataflow.yml --name stock-bench --detach
+sleep 32   # 30s --stop-after not supported on `dora start`; poll to completion
+dora logs stock-bench > /tmp/stock.log 2>&1
+dora stop --name stock-bench 2>/dev/null || true
+pkill -f "dora (coordinator|daemon)" 2>/dev/null; sleep 1
+
+# --rt run — daemon with the RT profile
+dora coordinator &
 sudo dora daemon --rt &
-dora run examples/benchmark/dataflow.yml --release --stop-after 30s \
-  > /tmp/rt.log 2>&1
+sleep 2
+dora start examples/benchmark/dataflow.yml --name rt-bench --detach
+sleep 32
+dora logs rt-bench > /tmp/rt.log 2>&1
+dora stop --name rt-bench 2>/dev/null || true
+pkill -f "dora (coordinator|daemon)" 2>/dev/null; sleep 1
 
 # Compare p99 latencies. `--rt` should be at least as low, typically 2-5x better.
 grep -E 'p99|max' /tmp/stock.log /tmp/rt.log
