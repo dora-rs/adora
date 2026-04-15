@@ -236,3 +236,103 @@ dora run examples/benchmark/dataflow.yml --stop-after 30s
   Consider jemalloc or mimalloc for more predictable allocation patterns.
 - **Interrupt-free execution**: Network interrupts, disk I/O, and kernel scheduler
   decisions can always cause jitter. Use `isolcpus` and IRQ affinity to minimize.
+
+## CI Coverage
+
+The `--rt` / mlock / SCHED_FIFO paths are **manual Tier 2** (see
+[`testing-matrix.md`](testing-matrix.md#soft-real-time)). Not automated
+on GitHub Actions for two reasons:
+
+1. **Privilege.** `--rt` needs `CAP_SYS_NICE` and `CAP_IPC_LOCK`. GHA
+   runners are unprivileged and refuse `sudo` for anything that touches
+   scheduling or memory locking.
+2. **Kernel config.** `SCHED_FIFO` needs `CONFIG_RT_GROUP_SCHED` (and
+   ideally a PREEMPT_RT kernel for meaningful guarantees). GHA runners
+   use stock Ubuntu kernels.
+
+A self-hosted runner with an RT-patched kernel could run this, but the
+cost-benefit is poor until there's evidence of regressions in the RT
+path. Tracked as #256.
+
+## Maintainer Validation Runbook
+
+Run this end-to-end before a release when code in `binaries/daemon/src/`
+or the scheduler/priority setup has changed. Requires root or
+`CAP_SYS_NICE + CAP_IPC_LOCK`.
+
+### Prerequisites
+
+- Linux with a reasonably modern kernel (5.x+ fine for soft-RT)
+- `sudo` or capabilities granted
+- `dora` CLI installed from the release candidate
+
+### Smoke the `--rt` flag
+
+```bash
+# 1. Start a coordinator and --rt daemon
+dora coordinator &
+sudo dora daemon --rt &
+
+# 2. Wait for registration
+sleep 3
+dora list  # should show no dataflows, daemon registered
+
+# 3. Verify the daemon has mlockall applied.
+# VmLck should be non-zero and close to VmRSS if mlockall succeeded.
+grep -E '^(VmRSS|VmLck):' /proc/$(pgrep -f 'dora daemon')/status
+
+# 4. Verify SCHED_FIFO on the daemon's main thread.
+chrt -p $(pgrep -f 'dora daemon')
+# Expected: "scheduling policy: SCHED_FIFO" (not SCHED_OTHER)
+```
+
+Pass criteria:
+- `VmLck` > 0 (memory actually locked)
+- `scheduling policy: SCHED_FIFO` (priority class applied)
+
+### Smoke `cpu_affinity` + SCHED_FIFO on a spawned node
+
+```bash
+# Run any fixture that pins cpu_affinity:
+dora run examples/cpu-affinity-probe/dataflow.yml --stop-after 3s
+
+# Grep for the AFFINITY_MASK marker — should match the fixture's cpu_affinity.
+# (this part is covered in Tier 1 nightly via `cpu-affinity-smoke`)
+```
+
+### Jitter regression test
+
+Only if the PR touches code that could affect jitter (daemon hot path,
+send/recv loops, allocator changes).
+
+```bash
+# Stock run
+dora run examples/benchmark/dataflow.yml --release --stop-after 30s \
+  > /tmp/stock.log 2>&1
+
+# --rt run
+sudo dora daemon --rt &
+dora run examples/benchmark/dataflow.yml --release --stop-after 30s \
+  > /tmp/rt.log 2>&1
+
+# Compare p99 latencies. `--rt` should be at least as low, typically 2-5x better.
+grep -E 'p99|max' /tmp/stock.log /tmp/rt.log
+```
+
+Flag in the release notes if p99 regressed versus the previous release.
+
+### When to skip this runbook
+
+- Docs-only PR
+- No changes under `binaries/daemon/src/spawn/`, `binaries/daemon/src/lib.rs`
+  around the `--rt` flag, or `dora-message` descriptor fields that feed
+  into the scheduler
+
+### When this becomes automated
+
+This runbook is the fallback until one of:
+1. A self-hosted RT runner lands and runs a weekly RT smoke job
+2. GHA provides a privileged RT-kernel runner class
+3. The `--rt` feature is removed or superseded
+
+At that point, update this section to reflect the new coverage.
