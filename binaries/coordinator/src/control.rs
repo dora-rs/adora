@@ -30,7 +30,7 @@ pub enum ControlEvent {
     TopicSubscribe {
         dataflow_id: Uuid,
         topics: Vec<(NodeId, DataId)>,
-        sender: mpsc::Sender<Vec<u8>>,
+        sender: mpsc::Sender<crate::topic_subscriber::TopicFrame>,
         done_tx: oneshot::Sender<Result<Uuid, String>>,
     },
     TopicCheck {

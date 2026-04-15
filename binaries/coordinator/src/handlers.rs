@@ -95,24 +95,40 @@ pub(crate) async fn send_topic_frames(
         );
         return;
     }
+    let shared_payload: std::sync::Arc<[u8]> = payload.into();
+    const MAX_CONSECUTIVE_TOPIC_SEND_TIMEOUTS: usize = 100;
     for subscription_id in subscription_ids {
         if let Some(subscriber) = topic_subscribers.get_mut(&subscription_id) {
-            let mut frame = Vec::with_capacity(16 + payload.len());
-            frame.extend_from_slice(&subscription_id.into_bytes());
-            frame.extend_from_slice(&payload);
+            let frame = crate::topic_subscriber::TopicFrame {
+                subscription_id,
+                payload: shared_payload.clone(),
+            };
             let send_result =
                 tokio::time::timeout(Duration::from_millis(100), subscriber.send_frame(frame))
                     .await;
             match send_result {
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    subscriber.reset_timeout_streak();
+                }
                 Ok(Err(_)) => {
                     subscriber.close();
                 }
                 Err(_) => {
-                    tracing::warn!(
-                        %subscription_id,
-                        "timed out sending topic debug frame to CLI subscriber; keeping subscription active"
-                    );
+                    let timeouts = subscriber.record_timeout();
+                    if timeouts >= MAX_CONSECUTIVE_TOPIC_SEND_TIMEOUTS {
+                        tracing::warn!(
+                            %subscription_id,
+                            timeouts,
+                            "closing slow topic debug subscriber after repeated send timeouts"
+                        );
+                        subscriber.close();
+                    } else {
+                        tracing::warn!(
+                            %subscription_id,
+                            timeouts,
+                            "timed out sending topic debug frame to CLI subscriber; keeping subscription active"
+                        );
+                    }
                 }
             }
         }

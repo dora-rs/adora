@@ -79,7 +79,7 @@ pub(crate) async fn handle_control_ws(
     // Channel for log events to push back on same WS connection
     let (log_tx, mut log_rx) = mpsc::channel::<String>(64);
     // Channel for binary topic data frames
-    let (binary_tx, mut binary_rx) = mpsc::channel::<Vec<u8>>(64);
+    let (binary_tx, mut binary_rx) = mpsc::channel::<crate::topic_subscriber::TopicFrame>(64);
     let mut topic_subscriptions: Vec<ActiveTopicSubscription> = Vec::new();
     let mut publish_session: Option<zenoh::Session> = None;
 
@@ -384,7 +384,10 @@ pub(crate) async fn handle_control_ws(
                 }
             }
             // Binary topic data to push to CLI
-            Some(data) = binary_rx.recv() => {
+            Some(frame) = binary_rx.recv() => {
+                let mut data = Vec::with_capacity(16 + frame.payload.len());
+                data.extend_from_slice(&frame.subscription_id.into_bytes());
+                data.extend_from_slice(&frame.payload);
                 if ws_tx.send(Message::Binary(data.into())).await.is_err() {
                     break;
                 }

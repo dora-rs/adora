@@ -2245,7 +2245,7 @@ async fn start_topic_debug_stream(
     daemon_connections: &mut DaemonConnections,
     dataflow_id: DataflowId,
     topics: Vec<(dora_message::id::NodeId, dora_message::id::DataId)>,
-    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    sender: tokio::sync::mpsc::Sender<crate::topic_subscriber::TopicFrame>,
     clock: &HLC,
 ) -> eyre::Result<Uuid> {
     let outputs_by_daemon = topic_outputs_by_daemon(running_dataflows, dataflow_id, &topics)?;
@@ -3254,7 +3254,8 @@ mod tests {
         let daemon_id = DaemonId::new(Some("m1".to_string()));
         let node_id: dora_core::config::NodeId = "sender".to_string().into();
         let data_id: dora_core::config::DataId = "message".to_string().into();
-        let (frame_tx, _frame_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4);
+        let (frame_tx, _frame_rx) =
+            tokio::sync::mpsc::channel::<crate::topic_subscriber::TopicFrame>(4);
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(8);
         let pending_replies = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
@@ -3344,7 +3345,8 @@ mod tests {
         let node_id_a: dora_message::id::NodeId = "sender".to_string().into();
         let node_id_b: dora_message::id::NodeId = "sink".to_string().into();
         let data_id: dora_core::config::DataId = "message".to_string().into();
-        let (frame_tx, _frame_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(4);
+        let (frame_tx, _frame_rx) =
+            tokio::sync::mpsc::channel::<crate::topic_subscriber::TopicFrame>(4);
 
         let mut daemon_connections = DaemonConnections::default();
         let mut daemon_tasks = Vec::new();
