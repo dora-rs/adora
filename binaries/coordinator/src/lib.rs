@@ -3614,14 +3614,18 @@ mod tests {
         // or its semantics change, this test must be updated or fails loudly.
         super::close_topic_subscribers_on_finish(&mut dataflow);
 
-        assert!(
-            rx1.recv().await.is_none(),
-            "subscriber 1 must see EOF after dataflow finish"
-        );
-        assert!(
-            rx2.recv().await.is_none(),
-            "subscriber 2 must see EOF after dataflow finish"
-        );
+        // Wrap recv in a short timeout so a future regression where close()
+        // silently drops the sender without closing fails loudly instead of
+        // hanging CI indefinitely.
+        let timeout = std::time::Duration::from_secs(1);
+        let got1 = tokio::time::timeout(timeout, rx1.recv())
+            .await
+            .expect("subscriber 1 must not hang after dataflow finish");
+        assert!(got1.is_none(), "subscriber 1 must see EOF");
+        let got2 = tokio::time::timeout(timeout, rx2.recv())
+            .await
+            .expect("subscriber 2 must not hang after dataflow finish");
+        assert!(got2.is_none(), "subscriber 2 must see EOF");
     }
 
     /// Source-level guard that the DataflowFinishedOnDaemon dispatch still
@@ -3635,7 +3639,13 @@ mod tests {
     /// reviewer might waive.
     #[test]
     fn dataflow_finish_dispatch_calls_close_helper() {
-        let src = include_str!("lib.rs");
+        // Runtime read (not include_str!) so we don't embed ~100KB of source
+        // into every test binary. The file is always present when `cargo test`
+        // runs from the crate root.
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .expect("lib.rs must be readable at CARGO_MANIFEST_DIR/src/lib.rs");
         assert!(
             src.contains("close_topic_subscribers_on_finish(&mut finished_dataflow)"),
             "DataflowFinishedOnDaemon arm must still call close_topic_subscribers_on_finish; \
