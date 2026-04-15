@@ -297,47 +297,44 @@ Already automated in the `cpu-affinity-smoke` nightly job — it runs the
 process. If `cpu-affinity-smoke` is green, this part is covered. No
 manual step required.
 
-### Verify SCHED_FIFO propagates from `--rt` daemon to spawned nodes
+### Scope of `--rt`: daemon process only
 
-This is the part Tier 1 can't cover (needs root). The daemon applies
-SCHED_FIFO to itself under `--rt`; verify it also propagates to child
-node processes. Must use `dora start` against the external `--rt`
-daemon — `dora run` spawns its own embedded daemon and will not exercise
-the RT path.
+`--rt` applies mlockall + SCHED_FIFO to the **daemon process itself**
+(see `binaries/cli/src/command/daemon.rs`). It does **not** propagate
+SCHED_FIFO to spawned node processes — the spawn path at
+`binaries/daemon/src/spawn/prepared.rs:422` only applies `cpu_affinity`
+in the `pre_exec` hook; there is no `sched_setscheduler` call on the
+child.
+
+This is by design: real-time scheduling on arbitrary user code is
+risky (a tight non-yielding loop under SCHED_FIFO can lock up a core
+until reboot). Nodes that need SCHED_FIFO must opt in explicitly, for
+example via [`thread-priority`](https://crates.io/crates/thread-priority)
+or a direct `libc::sched_setscheduler` call inside the node's own init
+code.
+
+### Verify node processes inherit `cpu_affinity` under `--rt`
+
+The daemon-level `--rt` profile is orthogonal to `cpu_affinity` — both
+should still apply correctly. Tier 1 `cpu-affinity-smoke` already
+covers this for a default daemon; the manual step is to confirm the
+same under `--rt`.
 
 ```bash
 pkill -f "dora (coordinator|daemon)" 2>/dev/null; sleep 1
 dora coordinator &
 sudo dora daemon --rt &
 sleep 2
-
-# Use a long-enough fixture that the node process is still alive when
-# we inspect it. cpu-affinity-probe exits on first tick, so use the
-# rust-dataflow example with a slower timer instead.
-cat > /tmp/rt-propagation.yml <<'EOF'
-nodes:
-  - id: source
-    path: /path/to/target/release/rust-dataflow-example-node
-    inputs:
-      tick: dora/timer/millis/500
-    outputs:
-      - random
-EOF
-dora start /tmp/rt-propagation.yml --name rt-propagation --detach
-sleep 2
-
-# Grab the node's PID and check its scheduling policy
-NODE_PID=$(pgrep -f rust-dataflow-example-node)
-chrt -p "$NODE_PID"
-# Expected: "scheduling policy: SCHED_FIFO" (not SCHED_OTHER)
-
-dora stop --name rt-propagation 2>/dev/null || true
+dora start examples/cpu-affinity-probe/dataflow.yml --name rt-affinity --detach
+sleep 3
+dora logs rt-affinity 2>&1 | grep AFFINITY_MASK
+# Expected: AFFINITY_MASK:0,1 (matches cpu_affinity in the fixture)
+dora stop --name rt-affinity 2>/dev/null || true
 pkill -f "dora (coordinator|daemon)" 2>/dev/null
 ```
 
-Pass criterion: `scheduling policy: SCHED_FIFO` on the child node
-process. If it prints `SCHED_OTHER`, the `--rt` flag is being applied
-to the daemon but not propagated to `fork+exec`'d children — regression.
+Pass criterion: `AFFINITY_MASK:0,1`. If the mask differs or is empty,
+`--rt` is breaking the `pre_exec` affinity hook — regression.
 
 ### Jitter regression test
 
