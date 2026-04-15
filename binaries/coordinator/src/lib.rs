@@ -26,7 +26,7 @@ use dora_message::{
 };
 pub use events::{DaemonRequest, DataflowEvent, Event};
 use eyre::{ContextCompat, Result, WrapErr, bail, eyre};
-use futures::{Future, Stream, StreamExt, stream::FuturesUnordered};
+use futures::{Future, Stream, StreamExt, future::join_all, stream::FuturesUnordered};
 use futures_concurrency::stream::Merge;
 use indexmap::IndexMap;
 use log_subscriber::LogSubscriber;
@@ -2264,7 +2264,7 @@ async fn start_topic_debug_stream(
             topic_subscriber::TopicSubscriber::new(outputs_by_daemon.clone(), sender),
         );
 
-    let mut started_daemons = Vec::new();
+    let mut start_requests = Vec::new();
     for (daemon_id, outputs) in outputs_by_daemon {
         let connection = daemon_connections
             .get_mut(&daemon_id)
@@ -2278,41 +2278,53 @@ async fn start_topic_debug_stream(
             },
             timestamp: clock.new_timestamp(),
         })?;
-        let reply_raw = connection
-            .send_and_receive(&message)
-            .await
-            .wrap_err("failed to send start-topic-debug-stream message")?;
-        let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
-            .wrap_err("failed to deserialize start-topic-debug-stream reply")?;
-        match reply {
-            DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())) => {
-                started_daemons.push(daemon_id);
+        start_requests.push(async move {
+            let result = async {
+                let reply_raw = connection
+                    .send_and_receive(&message)
+                    .await
+                    .wrap_err("failed to send start-topic-debug-stream message")?;
+                let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
+                    .wrap_err("failed to deserialize start-topic-debug-stream reply")?;
+                match reply {
+                    DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(())) => Ok(()),
+                    DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(err)) => {
+                        Err(eyre!(err))
+                    }
+                    other => Err(eyre!(
+                        "unexpected start-topic-debug-stream reply: {other:?}"
+                    )),
+                }
             }
-            DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(err)) => {
-                rollback_topic_debug_stream(
-                    running_dataflows,
-                    daemon_connections,
-                    dataflow_id,
-                    subscription_id,
-                    &started_daemons,
-                    clock,
-                )
-                .await?;
-                eyre::bail!("{err}");
-            }
-            other => {
-                rollback_topic_debug_stream(
-                    running_dataflows,
-                    daemon_connections,
-                    dataflow_id,
-                    subscription_id,
-                    &started_daemons,
-                    clock,
-                )
-                .await?;
-                eyre::bail!("unexpected start-topic-debug-stream reply: {other:?}");
+            .await;
+            (daemon_id, result)
+        });
+    }
+
+    let mut started_daemons = Vec::new();
+    let mut first_error = None;
+    for (daemon_id, result) in join_all(start_requests).await {
+        match result {
+            Ok(()) => started_daemons.push(daemon_id),
+            Err(err) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
             }
         }
+    }
+
+    if let Some(err) = first_error {
+        rollback_topic_debug_stream(
+            running_dataflows,
+            daemon_connections,
+            dataflow_id,
+            subscription_id,
+            &started_daemons,
+            clock,
+        )
+        .await?;
+        return Err(err);
     }
 
     Ok(subscription_id)
@@ -2379,6 +2391,7 @@ async fn stop_topic_debug_stream(
         return Ok(());
     };
 
+    let mut stop_requests = Vec::new();
     for (daemon_id, _) in outputs_by_daemon {
         let Some(connection) = daemon_connections.get_mut(&daemon_id).cloned() else {
             tracing::warn!(
@@ -2395,19 +2408,41 @@ async fn stop_topic_debug_stream(
             },
             timestamp: clock.new_timestamp(),
         })?;
-        let reply_raw = connection
-            .send_and_receive(&message)
-            .await
-            .wrap_err("failed to send stop-topic-debug-stream message")?;
-        let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
-            .wrap_err("failed to deserialize stop-topic-debug-stream reply")?;
-        match reply {
-            DaemonCoordinatorReply::StopTopicDebugStreamResult(Ok(())) => {}
-            DaemonCoordinatorReply::StopTopicDebugStreamResult(Err(err)) => {
-                eyre::bail!("{err}");
+        stop_requests.push(async move {
+            let result = async {
+                let reply_raw = connection
+                    .send_and_receive(&message)
+                    .await
+                    .wrap_err("failed to send stop-topic-debug-stream message")?;
+                let reply: DaemonCoordinatorReply = serde_json::from_slice(&reply_raw)
+                    .wrap_err("failed to deserialize stop-topic-debug-stream reply")?;
+                match reply {
+                    DaemonCoordinatorReply::StopTopicDebugStreamResult(Ok(())) => Ok(()),
+                    DaemonCoordinatorReply::StopTopicDebugStreamResult(Err(err)) => Err(eyre!(err)),
+                    other => Err(eyre!("unexpected stop-topic-debug-stream reply: {other:?}")),
+                }
             }
-            other => eyre::bail!("unexpected stop-topic-debug-stream reply: {other:?}"),
+            .await;
+            (daemon_id, result)
+        });
+    }
+
+    let mut first_error = None;
+    for (daemon_id, result) in join_all(stop_requests).await {
+        if let Err(err) = result {
+            tracing::warn!(
+                %daemon_id,
+                %subscription_id,
+                "failed to stop topic debug stream on daemon: {err}"
+            );
+            if first_error.is_none() {
+                first_error = Some(err);
+            }
         }
+    }
+
+    if let Some(err) = first_error {
+        return Err(err);
     }
 
     Ok(())

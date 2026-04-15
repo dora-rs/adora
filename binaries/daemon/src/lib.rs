@@ -2965,8 +2965,14 @@ impl Daemon {
         .wrap_err("failed to serialize inter-daemon event")?;
 
         if has_debug_watchers {
-            self.send_topic_debug_frames(dataflow_id, &output_id, &serialized_event)
-                .await?;
+            if remote_receivers {
+                self.send_topic_debug_frames(dataflow_id, &output_id, serialized_event.clone())
+                    .await?;
+            } else {
+                self.send_topic_debug_frames(dataflow_id, &output_id, serialized_event)
+                    .await?;
+                return Ok(());
+            }
         }
 
         if remote_receivers {
@@ -3036,7 +3042,7 @@ impl Daemon {
         &self,
         dataflow_id: Uuid,
         output_id: &OutputId,
-        serialized_event: &[u8],
+        serialized_event: Vec<u8>,
     ) -> Result<(), eyre::Error> {
         let Some(sender) = &self.coordinator_sender else {
             return Ok(());
@@ -3056,7 +3062,7 @@ impl Daemon {
                 event: DaemonEvent::TopicDebugData {
                     dataflow_id,
                     subscription_ids,
-                    payload: serialized_event.to_vec(),
+                    payload: serialized_event,
                 },
             },
             timestamp: self.clock.new_timestamp(),
