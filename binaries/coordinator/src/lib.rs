@@ -481,9 +481,7 @@ async fn start_inner(
                                     archived_dataflows.shift_remove_index(0);
                                 }
                                 let mut finished_dataflow = entry.remove();
-                                for subscriber in finished_dataflow.topic_subscribers.values_mut() {
-                                    subscriber.close();
-                                }
+                                close_topic_subscribers_on_finish(&mut finished_dataflow);
                                 let dataflow_id = finished_dataflow.uuid;
                                 send_log_message(
                                     &mut finished_dataflow.log_subscribers,
@@ -2448,6 +2446,20 @@ async fn stop_topic_debug_stream(
     Ok(())
 }
 
+/// Close every CLI topic-subscriber channel on a finished dataflow so the
+/// corresponding `dora topic echo/hz/info` client sees EOF on its receiver
+/// instead of hanging forever.
+///
+/// Called from the `DataflowFinishedOnDaemon` arm of the event loop when the
+/// last daemon has finished. Pulling this out of the inline match arm gives
+/// the behavior a named call site: removing it from the event loop shows up
+/// in a code review as "no more callers of close_topic_subscribers_on_finish".
+fn close_topic_subscribers_on_finish(dataflow: &mut RunningDataflow) {
+    for subscriber in dataflow.topic_subscribers.values_mut() {
+        subscriber.close();
+    }
+}
+
 async fn restore_topic_debug_streams_for_daemon(
     running_dataflows: &HashMap<DataflowId, RunningDataflow>,
     daemon_connections: &mut DaemonConnections,
@@ -3577,11 +3589,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dataflow_finish_closes_all_topic_subscribers() {
+    async fn close_topic_subscribers_on_finish_drains_all_subscribers() {
         // Regression test for the CRITICAL dataflow-finish leak (#242 root cause).
-        // When a dataflow finishes, coordinator drains topic_subscribers by
-        // calling close() on each; the CLI must observe EOF on its data_rx
-        // (no silent hang).
+        // Directly exercises the helper called from the DataflowFinishedOnDaemon
+        // arm of the event loop (lib.rs: `close_topic_subscribers_on_finish`).
+        // CLI must observe EOF on its data_rx (no silent hang).
         let dataflow_id = DataflowId::from(Uuid::new_v4());
         let daemon_id = DaemonId::new(Some("m1".to_string()));
         let node_id: dora_core::config::NodeId = "sender".to_string().into();
@@ -3598,10 +3610,9 @@ mod tests {
             crate::topic_subscriber::TopicSubscriber::new(BTreeMap::new(), tx2),
         );
 
-        // Mirror the production cleanup path from lib.rs:484-486.
-        for subscriber in dataflow.topic_subscribers.values_mut() {
-            subscriber.close();
-        }
+        // Call the real helper, not a mirror of it. If the helper is renamed
+        // or its semantics change, this test must be updated or fails loudly.
+        super::close_topic_subscribers_on_finish(&mut dataflow);
 
         assert!(
             rx1.recv().await.is_none(),
@@ -3610,6 +3621,25 @@ mod tests {
         assert!(
             rx2.recv().await.is_none(),
             "subscriber 2 must see EOF after dataflow finish"
+        );
+    }
+
+    /// Source-level guard that the DataflowFinishedOnDaemon dispatch still
+    /// calls the cleanup helper. A refactor that moves the branch but forgets
+    /// to keep the call wired up would leave the helper unreferenced from
+    /// `lib.rs` and fail this check.
+    ///
+    /// This is a second-line guard — the primary protection is that
+    /// `close_topic_subscribers_on_finish` has no other callers, so removal
+    /// also produces a `dead_code` lint. This test hard-fails the case a
+    /// reviewer might waive.
+    #[test]
+    fn dataflow_finish_dispatch_calls_close_helper() {
+        let src = include_str!("lib.rs");
+        assert!(
+            src.contains("close_topic_subscribers_on_finish(&mut finished_dataflow)"),
+            "DataflowFinishedOnDaemon arm must still call close_topic_subscribers_on_finish; \
+             if you moved the cleanup, update this guard to point at the new call site"
         );
     }
 
