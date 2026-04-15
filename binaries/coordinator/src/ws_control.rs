@@ -20,6 +20,13 @@ const MAX_TOPICS_PER_SUBSCRIBE: usize = 64;
 /// Maximum concurrent topic subscriptions per WebSocket connection.
 const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 16;
 
+#[derive(Clone)]
+struct ActiveTopicSubscription {
+    subscription_id: Uuid,
+    dataflow_id: Uuid,
+    topics: Vec<(dora_message::id::NodeId, dora_message::id::DataId)>,
+}
+
 /// Serialize a `WsResponse` and send it over the WS connection.
 /// Returns `Err` if the WS send fails (connection closed).
 async fn send_ws_response(
@@ -73,7 +80,8 @@ pub(crate) async fn handle_control_ws(
     let (log_tx, mut log_rx) = mpsc::channel::<String>(64);
     // Channel for binary topic data frames
     let (binary_tx, mut binary_rx) = mpsc::channel::<Vec<u8>>(64);
-    let mut topic_subscriptions: Vec<Uuid> = Vec::new();
+    let mut topic_subscriptions: Vec<ActiveTopicSubscription> = Vec::new();
+    let mut publish_session: Option<zenoh::Session> = None;
 
     loop {
         tokio::select! {
@@ -177,6 +185,23 @@ pub(crate) async fn handle_control_ws(
                         continue;
                     }
                     ControlRequest::TopicSubscribe { dataflow_id, topics } => {
+                        let mut normalized_topics = topics.clone();
+                        normalized_topics.sort();
+
+                        if let Some(existing) = topic_subscriptions.iter().find(|subscription| {
+                            subscription.dataflow_id == *dataflow_id
+                                && subscription.topics == normalized_topics
+                        }) {
+                            let reply = ControlRequestReply::TopicSubscribed {
+                                subscription_id: existing.subscription_id,
+                            };
+                            let resp_json = format_response_json(req.id, &reply);
+                            if ws_tx.send(Message::Text(resp_json.into())).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+
                         // Validate topic count
                         if topics.len() > MAX_TOPICS_PER_SUBSCRIBE {
                             let resp = WsResponse::err(
@@ -215,7 +240,11 @@ pub(crate) async fn handle_control_ws(
 
                         let subscription_id = match done_rx.await {
                             Ok(Ok(subscription_id)) => {
-                                topic_subscriptions.push(subscription_id);
+                                topic_subscriptions.push(ActiveTopicSubscription {
+                                    subscription_id,
+                                    dataflow_id: *dataflow_id,
+                                    topics: normalized_topics,
+                                });
                                 subscription_id
                             }
                             Ok(Err(err)) => {
@@ -241,7 +270,8 @@ pub(crate) async fn handle_control_ws(
                         continue;
                     }
                     ControlRequest::TopicUnsubscribe { subscription_id } => {
-                        topic_subscriptions.retain(|active| active != subscription_id);
+                        topic_subscriptions
+                            .retain(|active| active.subscription_id != *subscription_id);
                         let (done_tx, done_rx) = oneshot::channel();
                         let _ = event_tx
                             .send(Event::Control(ControlEvent::TopicUnsubscribe {
@@ -288,6 +318,7 @@ pub(crate) async fn handle_control_ws(
                             output_id,
                             data_json,
                             &clock,
+                            &mut publish_session,
                         )
                         .await
                         {
@@ -361,7 +392,10 @@ pub(crate) async fn handle_control_ws(
         }
     }
 
-    for subscription_id in topic_subscriptions {
+    for subscription_id in topic_subscriptions
+        .into_iter()
+        .map(|active| active.subscription_id)
+    {
         let (done_tx, done_rx) = oneshot::channel();
         let _ = event_tx
             .send(Event::Control(ControlEvent::TopicUnsubscribe {
@@ -382,6 +416,7 @@ async fn publish_topic(
     output_id: &dora_message::id::DataId,
     data_json: &str,
     clock: &dora_core::uhlc::HLC,
+    session: &mut Option<zenoh::Session>,
 ) -> Result<(), String> {
     let topic = dora_core::topics::zenoh_output_publish_topic(dataflow_id, node_id, output_id);
 
@@ -422,9 +457,17 @@ async fn publish_topic(
         .serialize()
         .map_err(|e| format!("failed to serialize event: {e}"))?;
 
-    dora_core::topics::open_zenoh_session(None)
-        .await
-        .map_err(|e| format!("failed to open zenoh session: {e}"))?
+    if session.is_none() {
+        *session = Some(
+            dora_core::topics::open_zenoh_session(None)
+                .await
+                .map_err(|e| format!("failed to open zenoh session: {e}"))?,
+        );
+    }
+
+    session
+        .as_mut()
+        .expect("zenoh publish session initialized")
         .put(&topic, payload)
         .await
         .map_err(|e| format!("failed to publish to zenoh: {e}"))?;

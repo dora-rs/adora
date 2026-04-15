@@ -103,8 +103,17 @@ pub(crate) async fn send_topic_frames(
             let send_result =
                 tokio::time::timeout(Duration::from_millis(100), subscriber.send_frame(frame))
                     .await;
-            if send_result.is_err() {
-                subscriber.close();
+            match send_result {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    subscriber.close();
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        %subscription_id,
+                        "timed out sending topic debug frame to CLI subscriber; keeping subscription active"
+                    );
+                }
             }
         }
     }

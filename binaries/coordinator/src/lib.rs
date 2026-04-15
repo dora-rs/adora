@@ -481,6 +481,9 @@ async fn start_inner(
                                     archived_dataflows.shift_remove_index(0);
                                 }
                                 let mut finished_dataflow = entry.remove();
+                                for subscriber in finished_dataflow.topic_subscribers.values_mut() {
+                                    subscriber.close();
+                                }
                                 let dataflow_id = finished_dataflow.uuid;
                                 send_log_message(
                                     &mut finished_dataflow.log_subscribers,
@@ -2020,6 +2023,14 @@ async fn start_inner(
                 const RECOVERY_BACKOFF: Duration = Duration::from_secs(30);
                 let reported_set: BTreeSet<DataflowId> =
                     reported_dataflows.iter().map(|e| e.dataflow_id).collect();
+                restore_topic_debug_streams_for_daemon(
+                    &running_dataflows,
+                    &mut daemon_connections,
+                    &daemon_id,
+                    &reported_set,
+                    &clock,
+                )
+                .await;
                 let now = Instant::now();
                 for (uuid, df) in &mut running_dataflows {
                     if !df.daemons.contains(&daemon_id) {
@@ -2315,13 +2326,12 @@ async fn rollback_topic_debug_stream(
     started_daemons: &[DaemonId],
     clock: &HLC,
 ) -> eyre::Result<()> {
-    let Some(subscriber) = running_dataflows
+    let Some(_) = running_dataflows
         .get_mut(&dataflow_id)
         .and_then(|dataflow| dataflow.topic_subscribers.remove(&subscription_id))
     else {
         return Ok(());
     };
-    let _outputs_by_daemon = subscriber.outputs_by_daemon().clone();
 
     for daemon_id in started_daemons {
         let Some(connection) = daemon_connections.get_mut(daemon_id).cloned() else {
@@ -2370,10 +2380,14 @@ async fn stop_topic_debug_stream(
     };
 
     for (daemon_id, _) in outputs_by_daemon {
-        let connection = daemon_connections
-            .get_mut(&daemon_id)
-            .wrap_err_with(|| format!("no daemon connection for daemon `{daemon_id}`"))?
-            .clone();
+        let Some(connection) = daemon_connections.get_mut(&daemon_id).cloned() else {
+            tracing::warn!(
+                %daemon_id,
+                %subscription_id,
+                "skipping topic debug stream teardown for missing daemon connection"
+            );
+            continue;
+        };
         let message = serde_json::to_vec(&Timestamped {
             inner: DaemonCoordinatorEvent::StopTopicDebugStream {
                 dataflow_id,
@@ -2397,6 +2411,88 @@ async fn stop_topic_debug_stream(
     }
 
     Ok(())
+}
+
+async fn restore_topic_debug_streams_for_daemon(
+    running_dataflows: &HashMap<DataflowId, RunningDataflow>,
+    daemon_connections: &mut DaemonConnections,
+    daemon_id: &DaemonId,
+    reported_dataflows: &BTreeSet<DataflowId>,
+    clock: &HLC,
+) {
+    let Some(connection) = daemon_connections.get_mut(daemon_id).cloned() else {
+        return;
+    };
+
+    for (dataflow_id, dataflow) in running_dataflows {
+        if !reported_dataflows.contains(dataflow_id) {
+            continue;
+        }
+        for (subscription_id, subscriber) in &dataflow.topic_subscribers {
+            let Some(outputs) = subscriber.outputs_by_daemon().get(daemon_id).cloned() else {
+                continue;
+            };
+            let message = match serde_json::to_vec(&Timestamped {
+                inner: DaemonCoordinatorEvent::StartTopicDebugStream {
+                    dataflow_id: *dataflow_id,
+                    outputs,
+                    subscription_id: *subscription_id,
+                },
+                timestamp: clock.new_timestamp(),
+            }) {
+                Ok(message) => message,
+                Err(err) => {
+                    tracing::warn!(
+                        %daemon_id,
+                        %dataflow_id,
+                        %subscription_id,
+                        "failed to serialize topic debug stream restore message: {err}"
+                    );
+                    continue;
+                }
+            };
+
+            match connection.send_and_receive(&message).await {
+                Ok(reply_raw) => {
+                    match serde_json::from_slice::<DaemonCoordinatorReply>(&reply_raw) {
+                        Ok(DaemonCoordinatorReply::StartTopicDebugStreamResult(Ok(()))) => {}
+                        Ok(DaemonCoordinatorReply::StartTopicDebugStreamResult(Err(err))) => {
+                            tracing::warn!(
+                                %daemon_id,
+                                %dataflow_id,
+                                %subscription_id,
+                                "daemon rejected restored topic debug stream: {err}"
+                            );
+                        }
+                        Ok(other) => {
+                            tracing::warn!(
+                                %daemon_id,
+                                %dataflow_id,
+                                %subscription_id,
+                                "unexpected restore-topic-debug-stream reply: {other:?}"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                %daemon_id,
+                                %dataflow_id,
+                                %subscription_id,
+                                "failed to deserialize restore-topic-debug-stream reply: {err}"
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        %daemon_id,
+                        %dataflow_id,
+                        %subscription_id,
+                        "failed to restore topic debug stream after daemon reconnect: {err}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 async fn handle_pruned_state_catchup_fallback(

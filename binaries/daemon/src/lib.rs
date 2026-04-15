@@ -3048,13 +3048,14 @@ impl Daemon {
             return Ok(());
         };
         let subscription_ids: Vec<_> = subscription_ids.iter().copied().collect();
+        let subscription_count = subscription_ids.len();
 
         let message = serde_json::to_vec(&Timestamped {
             inner: CoordinatorRequest::Event {
                 daemon_id: self.daemon_id.clone(),
                 event: DaemonEvent::TopicDebugData {
                     dataflow_id,
-                    subscription_ids: subscription_ids.clone(),
+                    subscription_ids,
                     payload: serialized_event.to_vec(),
                 },
             },
@@ -3066,7 +3067,7 @@ impl Daemon {
                 tracing::warn!(
                     %dataflow_id,
                     output = %format!("{}/{}", output_id.0, output_id.1),
-                    subscriptions = subscription_ids.len(),
+                    subscriptions = subscription_count,
                     "dropping topic debug frame because coordinator WS send channel is full"
                 );
             }
@@ -3074,7 +3075,7 @@ impl Daemon {
                 tracing::warn!(
                     %dataflow_id,
                     output = %format!("{}/{}", output_id.0, output_id.1),
-                    subscriptions = subscription_ids.len(),
+                    subscriptions = subscription_count,
                     "dropping topic debug frame because coordinator WS send channel is closed"
                 );
             }

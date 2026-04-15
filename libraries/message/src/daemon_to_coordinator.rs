@@ -92,6 +92,10 @@ pub enum DaemonEvent {
         #[serde(default)]
         network: Option<NetworkMetrics>,
     },
+    /// Topic debug payload destined for one or more active CLI subscriptions.
+    ///
+    /// Daemon and coordinator are co-deployed from the same build, so this
+    /// multi-subscriber shape is safe to evolve within the repository.
     TopicDebugData {
         dataflow_id: DataflowId,
         subscription_ids: Vec<uuid::Uuid>,
