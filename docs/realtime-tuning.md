@@ -290,15 +290,54 @@ Pass criteria:
 - `VmLck` > 0 (memory actually locked)
 - `scheduling policy: SCHED_FIFO` (priority class applied)
 
-### Smoke `cpu_affinity` + SCHED_FIFO on a spawned node
+### Smoke `cpu_affinity` (covered by Tier 1)
+
+Already automated in the `cpu-affinity-smoke` nightly job — it runs the
+`cpu-affinity-probe` fixture and asserts the mask lands on the spawned
+process. If `cpu-affinity-smoke` is green, this part is covered. No
+manual step required.
+
+### Verify SCHED_FIFO propagates from `--rt` daemon to spawned nodes
+
+This is the part Tier 1 can't cover (needs root). The daemon applies
+SCHED_FIFO to itself under `--rt`; verify it also propagates to child
+node processes. Must use `dora start` against the external `--rt`
+daemon — `dora run` spawns its own embedded daemon and will not exercise
+the RT path.
 
 ```bash
-# Run any fixture that pins cpu_affinity:
-dora run examples/cpu-affinity-probe/dataflow.yml --stop-after 3s
+pkill -f "dora (coordinator|daemon)" 2>/dev/null; sleep 1
+dora coordinator &
+sudo dora daemon --rt &
+sleep 2
 
-# Grep for the AFFINITY_MASK marker — should match the fixture's cpu_affinity.
-# (this part is covered in Tier 1 nightly via `cpu-affinity-smoke`)
+# Use a long-enough fixture that the node process is still alive when
+# we inspect it. cpu-affinity-probe exits on first tick, so use the
+# rust-dataflow example with a slower timer instead.
+cat > /tmp/rt-propagation.yml <<'EOF'
+nodes:
+  - id: source
+    path: /path/to/target/release/rust-dataflow-example-node
+    inputs:
+      tick: dora/timer/millis/500
+    outputs:
+      - random
+EOF
+dora start /tmp/rt-propagation.yml --name rt-propagation --detach
+sleep 2
+
+# Grab the node's PID and check its scheduling policy
+NODE_PID=$(pgrep -f rust-dataflow-example-node)
+chrt -p "$NODE_PID"
+# Expected: "scheduling policy: SCHED_FIFO" (not SCHED_OTHER)
+
+dora stop --name rt-propagation 2>/dev/null || true
+pkill -f "dora (coordinator|daemon)" 2>/dev/null
 ```
+
+Pass criterion: `scheduling policy: SCHED_FIFO` on the child node
+process. If it prints `SCHED_OTHER`, the `--rt` flag is being applied
+to the daemon but not propagated to `fork+exec`'d children — regression.
 
 ### Jitter regression test
 
