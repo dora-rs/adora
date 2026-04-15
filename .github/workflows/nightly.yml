@@ -589,6 +589,7 @@ jobs:
           - record-replay
           - cluster-smoke
           - topic-and-top-smoke
+          - cpu-affinity-smoke
 
           See the run for per-job status and logs. Subsequent failures
           will comment on this issue instead of opening new ones. Close
