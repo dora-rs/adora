@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — D-0 resolved as **D-0a** and D-1 resolved as **D-1a** (2026-04-16). Governance and wire-protocol gates closed. Remaining Phase -1 gates: 2026-03-21 critical re-verification (#289), PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
+**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a**, audit re-verification complete (2026-04-16). Governance, wire-protocol, and 2026-03-21 critical-closure gates closed (#288, #289, #293). Remaining Phase -1 gates: PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -228,6 +228,8 @@ From `docs/audit-report-2026-03-21.md`:
 - **Smoke/E2E tests not in CI** at time of audit — addressed since. `tests/example-smoke.rs`, `tests/ws-cli-e2e.rs`, and `tests/fault-tolerance-e2e.rs` all run in CI (see `.github/workflows/ci.yml`).
 
 **Before the 1.0 release:** all memory-safety and code-execution issues must be verified fixed or have an explicit waiver documented. The 1.0 launch cannot ship with unresolved criticals from the audit. See Decision Point D-2 below.
+
+**Status (2026-04-16):** closure record [`docs/audit-2026-03-21-closure.md`](audit-2026-03-21-closure.md) walks every Critical finding. 17 fixed (with per-finding fix commits + current-HEAD verification), 3 eliminated by architectural change (DC3/CM3 → Phase 3b), 3 explicitly waived with rationale (CM1 analyzed correct; SEC1 hash opt-in with warning; SEC3 TLS deferred post-1.0). Every row has a decision recorded. Closed #289.
 
 ---
 
@@ -1090,6 +1092,7 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 | 2026-04-16 | heyong4725 + AI | Review round 4 (PR #286 third review): §1 headline top-contributor row — prior cell listed phil-opp 1,786 / haixuanTao 1,828 for the `dora-upstream` column but those are `dora-fork` local git-shortlog numbers. Verified actual upstream contributions via `gh api repos/dora-rs/dora/contributors` = phil-opp 2,023 / haixuanTao 1,895. Replaced with the upstream-authoritative figure and added a footnote naming the metric ("GitHub contributions metric" vs `git shortlog`). §19.5 contributor-count row — "upstream 115 / fork 90" had no traceable provenance; upstream contributors API returns 91. Replaced with both methods named, both commands reproducible, and a note that the prior 115/90 framing is not to be reused. |
 | 2026-04-16 | heyong4725 + AI | Governance resolution: **D-0 resolved as D-0a** (fork tree overwrites upstream as 1.0 baseline) per heyong4725 confirmation; phil-opp and haixuanTao are contractors and were briefed. §1 Status line updated; §7 D-0 marked resolved; §19.7 Governance row flipped to Done and linked to closed #293. Remaining Phase -1 evidence gates (wire-protocol audit, audit criticals re-verification, ownership, outreach, dogfood) still open as #288, #289, #290, #291, #292 — tracked under epic #287. |
 | 2026-04-16 | heyong4725 + AI | **D-1 resolved as D-1a** (hard protocol break) based on Phase -1 wire-protocol audit. Evidence: new file `docs/phase--1-audit-2026-04-16.md` with per-file diff of `libraries/message/src/*.rs` between `upstream/main` and local HEAD, transport-layer analysis (tarpc vs WebSocket), handshake analysis (mandatory `Hello` fork-only), and migration-guide action items. §17 Appendix F populated; §19.7 "Wire protocol audit" flipped to Done; §7 D-1 marked resolved with D-1b/D-1c struck through. Closed #288. |
+| 2026-04-16 | heyong4725 + AI | **Audit-2026-03-21 critical closure.** New file `docs/audit-2026-03-21-closure.md` records per-finding status across 23 Critical items: 17 fixed (with fix commit + current-HEAD verification — DC1 bounds check, CM2 Sync invariant docs, SEC1/SEC2 URL hardening, DC2 listener shutdown, AC1–AC4 unwrap elimination, Q1–Q4, ET1–ET2, etc.), 3 eliminated by Phase 3b (DC3, CM3, related), 3 explicitly waived (CM1 analyzed correct by Release/Acquire pair; SEC1 hash opt-in with warning + strict-mode deferred to 1.1; SEC3 TLS deferred post-1.0 to reverse-proxy pattern). §3.6 annotated; §19.7 "Security audit" row flipped to Done. Closed #289. |
 
 ---
 
@@ -1174,7 +1177,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 |---|---|---|
 | Governance alignment | **Done** (2026-04-16) | phil-opp and haixuanTao are contractors and were briefed. D-0 resolved as **D-0a** (tree takeover). Artifact: heyong4725 confirmation on [PR #286](https://github.com/dora-rs/adora/pull/286) + prior contractor conversations. Closed via #293. |
 | Wire protocol audit | **Done** (2026-04-16) | [`docs/phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) attached; Appendix F populated from the evidence; D-1 resolved as D-1a. Closed #288. |
-| Security audit (re-verify 2026-03-21 criticals) | **Pending evidence** | The 3 memory-safety + 1 code-execution items from `docs/audit-report-2026-03-21.md` must be re-verified or waived. The separate 2026-04-16 fresh audit (0 P0, 0 P1 remaining) does not substitute — it's a different scope. Close with link to each fix PR or written waiver. |
+| Security audit (re-verify 2026-03-21 criticals) | **Done** (2026-04-16) | [`docs/audit-2026-03-21-closure.md`](audit-2026-03-21-closure.md) walks every Critical finding with fix commit + verification, or explicit waiver. 17 fixed, 3 eliminated by Phase 3b, 3 explicitly waived (CM1 code correct by Release/Acquire pairing; SEC1 opt-in hash with warning, strict mode 1.1; SEC3 TLS deferred post-1.0). No open P0 or P1. Closed #289. |
 | Superset verification | **Done** (2026-04-16, revised) | 3 real gaps identified in §19.3 (was 4; #1610 dropped after verification) |
 | Upstream alignment (#201) | **Done** (2026-04-15) | 25 PRs audited, 3 shipped — link PR closures |
 | CI green | **Done** (2026-04-16) | All platforms, all jobs (link latest green run) |
