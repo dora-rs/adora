@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — D-0 resolved as **D-0a** (fork tree overwrites upstream as 1.0 baseline; confirmed 2026-04-16 by heyong4725 + contractors phil-opp and haixuanTao). Governance gate closed. Remaining Phase -1 gates: wire-protocol audit (#288), 2026-03-21 critical re-verification (#289), PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
+**Status**: Active — D-0 resolved as **D-0a** and D-1 resolved as **D-1a** (2026-04-16). Governance and wire-protocol gates closed. Remaining Phase -1 gates: 2026-03-21 critical re-verification (#289), PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -506,16 +506,15 @@ These are the decisions that cannot be made unilaterally. Each needs explicit re
 
 ### D-1: Wire protocol compatibility strategy
 
-**Context:** dora added `auth.rs` and `ws_protocol.rs` to `libraries/message/`. Several of dora's existing message files have likely diverged. A dora 0.5.0 daemon may not interoperate with a dora 1.0.0 daemon.
+**Resolved (2026-04-16): D-1a — hard protocol break.** Evidence: [`docs/phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) shows incompatibility at five independent layers (transport tarpc↔WebSocket, top-level dispatch, enum variant ordering, mandatory `Hello` handshake, fork-only `auth.rs`/`ws_protocol.rs` files). Bridge release (D-1b) and version negotiation (D-1c) are not justified for the small user base. Migration guide must document "full cluster restart required for 0.x → 1.0 upgrade"; release note owes an explicit breaking-change callout.
 
-**Options:**
-- **D-1a:** Ship 1.0.0 with a hard protocol break. Document "full cluster restart required for upgrade." Simple.
-- **D-1b:** Ship 0.9.0 as a bridge release with both protocols; 1.0.0 drops the 0.x protocol. Slower but allows rolling upgrades.
-- **D-1c:** Ship 1.0.0 with a version-negotiation handshake; daemons auto-downgrade when talking to 0.x peers. Most work; best UX.
+**Context (historical):** fork added `auth.rs` and `ws_protocol.rs` to `libraries/message/`, and most of the existing message files diverged. A 0.5.0 daemon cannot interoperate with a 1.0.0 daemon — connections fail at TCP handshake level.
 
-**Recommendation:** D-1a if the Phase -1 protocol audit shows the divergence is small and rolling upgrades are rare in the dora user base; D-1b otherwise. Avoid D-1c unless a specific user demands it.
+~~**Options D-1b/D-1c** (rejected):~~
+- ~~D-1b: Ship 0.9.0 as a bridge release with both protocols.~~ Cost ~1–2 engineer-weeks; small user base.
+- ~~D-1c: Version-negotiation handshake with auto-downgrade.~~ Transport-layer divergence makes this effectively D-1b with extra steps.
 
-**Decision owner:** maintainers + top 3 downstream users
+**Decision owner (resolved):** heyong4725 based on Phase -1 audit evidence; phil-opp + haixuanTao to confirm on release-note wording.
 
 ### D-2: Audit critical closure evidence
 
@@ -1036,36 +1035,46 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 
 ## 17. Appendix F: Protocol audit results
 
-**(To be filled in during Phase -1.)**
-
-Template:
-
-```
-## Protocol audit — <date>
+**Audit date:** 2026-04-16 · **Full evidence:** [`docs/phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) · **Issue:** closed #288 · **Gate:** §19.7 "Wire protocol audit" = Done
 
 ### Scope
-- dora version examined: 0.5.0 (<sha>)
-- dora version examined: 0.2.1 (<sha>)
+- `dora-upstream` examined: 0.5.0, `upstream/main` as of 2026-04-16 (HEAD `52835cff6`)
+- `dora-fork` examined: 0.2.1, local `HEAD` as of 2026-04-16
 
-### Message-by-message diff
+### Headline finding
 
-| File | Lines changed | Semantic breaks | Wire-compatible? |
-|---|---|---|---|
-| cli_to_coordinator.rs | N | describe | Yes/No |
-| coordinator_to_daemon.rs | N | describe | Yes/No |
-| daemon_to_node.rs | N | describe | Yes/No |
-| ws_protocol.rs | (dora-only) | n/a | No |
-| auth.rs | (dora-only) | n/a | No |
-| ... | | | |
+**The protocols are incompatible at multiple layers.** Rolling upgrade between a 0.5.0 deployment and a 1.0.0 deployment is impossible. Break is at: (a) transport layer — upstream uses tarpc/TCP+JSON, fork uses WebSocket; (b) message enum shape — flat RPC structs became enum-dispatched `ControlRequest`; (c) enum variant ordering — fork inserted new variants mid-enum (bincode tags shift); (d) new mandatory `Hello` handshake fork-only; (e) fork-only files `auth.rs` and `ws_protocol.rs`.
+
+### Message-by-message diff (summary)
+
+| File | Diff lines | Wire-compatible? | Notes |
+|---|---:|---|---|
+| `cli_to_coordinator.rs` | 383 | **No** | Flat structs → `ControlRequest` enum + `Hello` handshake |
+| `common.rs` | 221 | **No** | New types |
+| `config.rs` | 567 | **No** | Major additions |
+| `coordinator_to_cli.rs` | 224 | **No** | New reply variants |
+| `coordinator_to_daemon.rs` | 225 | **No** | State catch-up additions |
+| `daemon_to_coordinator.rs` | 229 | **No** | `DaemonEvent`, `NodeStatus`, `FaultToleranceSnapshot`, `NetworkMetrics` added |
+| `daemon_to_daemon.rs` | 14 | **No** (minor) | Small but breaking |
+| `daemon_to_node.rs` | 148 | **No** | `DaemonCommunication::Shmem` variant inserted; `NodeEvent` gained 4 variants (`InputRecovered`, `NodeRestarted`, `ParamUpdate`, `ParamDeleted`); `DaemonReply::NextEvents` type changed |
+| `descriptor.rs` | 1,266 | **No** | YAML descriptor superset |
+| `id.rs` | 271 | **No** | New identifier types |
+| `integration_testing_format.rs` | 0 | Yes | Identical (test-only) |
+| `lib.rs` | 73 | — | Internal re-exports |
+| `metadata.rs` | 605 | **No** | `TryFromParameterError` removed; `BufferOffset` + metadata-key constants added. `Parameter` variants in matching order (sole overlap). |
+| `node_to_daemon.rs` | 12 | Borderline | One-line addition |
+| `auth.rs` | fork-only | **No** | Bearer-token auth; no upstream equivalent |
+| `ws_protocol.rs` | fork-only | **No** | WebSocket control plane; upstream speaks tarpc |
 
 ### Handshake compatibility
-- Does dora 0.5.0 daemon recognize dora 1.0.0 coordinator? (Yes/No/Partial)
-- Does version negotiation exist? (Yes/No)
+
+- Does a 0.5.0 daemon recognize a 1.0.0 coordinator? **No.** Transport differs (tarpc vs WebSocket); connection fails at TCP handshake level.
+- Does a 1.0.0 CLI recognize a 0.5.0 coordinator? **No.** Same transport mismatch.
+- Does version negotiation exist? **Asymmetric.** Fork adds mandatory `ControlRequest::Hello { dora_version }` with semver compatibility check (`libraries/message/src/cli_to_coordinator.rs:193-232`). Upstream has only optional `get_version()` tarpc method. Cross-version connection fails before the handshake can execute.
 
 ### Recommendation
-- D-1a / D-1b / D-1c (see Decision Points)
-- Rationale: ...
-```
+
+**D-1a — hard protocol break.** Migration guide must state "full cluster restart required" for 0.x → 1.0 upgrades. D-1b (bridge release) and D-1c (version negotiation) would cost ~1–2 engineer-weeks for a small user base and are not justified. See the evidence file §6 for action items that must land before Phase 5 (explicit release-note callout, interop failure test, startup log line naming the supported protocol version).
 
 ---
 
@@ -1080,6 +1089,7 @@ Template:
 | 2026-04-16 | heyong4725 + AI | Review round 3 (follow-up from second PR #286 review): §19.6 action list and §19.8 checklist updated to use path-scoped CODEOWNERS + content-based CI (they still referenced the broken `**/unsafe*` glob as the required step); Appendix E PyPI ownership check fixed (was running `pip index versions dora-rs` twice — verified both upstream and fork publish the same two names `dora-rs` and `dora-rs-cli`, so the check now loops both names and records owner-list URLs for manual ownership verification); §19.6 "Unsafe code isolation" softened from "isolation rule holding" to "target state documented; current compliance partial" with a verified example (channel.rs send_raw / receive / disconnect / data_len / data have inline `unsafe { }` in safe methods and 0 `# Safety:` docs). |
 | 2026-04-16 | heyong4725 + AI | Review round 4 (PR #286 third review): §1 headline top-contributor row — prior cell listed phil-opp 1,786 / haixuanTao 1,828 for the `dora-upstream` column but those are `dora-fork` local git-shortlog numbers. Verified actual upstream contributions via `gh api repos/dora-rs/dora/contributors` = phil-opp 2,023 / haixuanTao 1,895. Replaced with the upstream-authoritative figure and added a footnote naming the metric ("GitHub contributions metric" vs `git shortlog`). §19.5 contributor-count row — "upstream 115 / fork 90" had no traceable provenance; upstream contributors API returns 91. Replaced with both methods named, both commands reproducible, and a note that the prior 115/90 framing is not to be reused. |
 | 2026-04-16 | heyong4725 + AI | Governance resolution: **D-0 resolved as D-0a** (fork tree overwrites upstream as 1.0 baseline) per heyong4725 confirmation; phil-opp and haixuanTao are contractors and were briefed. §1 Status line updated; §7 D-0 marked resolved; §19.7 Governance row flipped to Done and linked to closed #293. Remaining Phase -1 evidence gates (wire-protocol audit, audit criticals re-verification, ownership, outreach, dogfood) still open as #288, #289, #290, #291, #292 — tracked under epic #287. |
+| 2026-04-16 | heyong4725 + AI | **D-1 resolved as D-1a** (hard protocol break) based on Phase -1 wire-protocol audit. Evidence: new file `docs/phase--1-audit-2026-04-16.md` with per-file diff of `libraries/message/src/*.rs` between `upstream/main` and local HEAD, transport-layer analysis (tarpc vs WebSocket), handshake analysis (mandatory `Hello` fork-only), and migration-guide action items. §17 Appendix F populated; §19.7 "Wire protocol audit" flipped to Done; §7 D-1 marked resolved with D-1b/D-1c struck through. Closed #288. |
 
 ---
 
@@ -1163,7 +1173,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 | Gate | Status | Evidence |
 |---|---|---|
 | Governance alignment | **Done** (2026-04-16) | phil-opp and haixuanTao are contractors and were briefed. D-0 resolved as **D-0a** (tree takeover). Artifact: heyong4725 confirmation on [PR #286](https://github.com/dora-rs/adora/pull/286) + prior contractor conversations. Closed via #293. |
-| Wire protocol audit | **Pending evidence** | The D-1a "hard break, incompatible" conclusion is claimed but Appendix F is still the empty template. Run the §16 audit script and attach output as `docs/phase--1-audit-2026-04-XX.md` before marking Done. |
+| Wire protocol audit | **Done** (2026-04-16) | [`docs/phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) attached; Appendix F populated from the evidence; D-1 resolved as D-1a. Closed #288. |
 | Security audit (re-verify 2026-03-21 criticals) | **Pending evidence** | The 3 memory-safety + 1 code-execution items from `docs/audit-report-2026-03-21.md` must be re-verified or waived. The separate 2026-04-16 fresh audit (0 P0, 0 P1 remaining) does not substitute — it's a different scope. Close with link to each fix PR or written waiver. |
 | Superset verification | **Done** (2026-04-16, revised) | 3 real gaps identified in §19.3 (was 4; #1610 dropped after verification) |
 | Upstream alignment (#201) | **Done** (2026-04-15) | 25 PRs audited, 3 shipped — link PR closures |
