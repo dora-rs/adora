@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — Phase -1 gates cleared (governance, protocol audit, security audit, superset verification). 4 gaps to close, then ready for Phase 0.
+**Status**: Active — several Phase -1 gates still pending evidence (see §19.7). Governance is briefed but has no written sign-off; wire-protocol audit and 2026-03-21 security-audit re-verification still owe artifacts. Not ready for Phase 0 until §19.8 pre-merge checklist is closed.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -85,8 +85,9 @@ Where older sections still say "dora" ambiguously, the rule is: if the sentence 
 | Path | Purpose |
 |---|---|
 | `apis/python/cli` | Python bindings for the CLI (`dora.build()`, `dora.run()`, etc.) |
-| `apis/rust/compat/dora-node-api` | **Existing compat shim** — re-exports dora types under dora names. Will be **reversed** in 1.0 |
-| `apis/rust/compat/dora-operator-api` | Same for operator API |
+
+> **Correction (2026-04-16 review):** earlier drafts listed `apis/rust/compat/dora-node-api` and `.../dora-operator-api` as "existing compat shims that will be reversed in 1.0". Neither directory exists today — not in `dora-fork` and not in `dora-upstream` (verified against `dora-rs/dora@main`). The Phase 4 compat layer is **new code to write**, not a directory rename. Phase 4 has been re-scoped accordingly.
+
 | `binaries/ros2-bridge-node` | Standalone ROS2 bridge node binary |
 | `binaries/replay-node` | Replays `.adorec` recordings as dataflow sources |
 | `binaries/record-node` | Records dataflow traffic to `.adorec` format |
@@ -404,8 +405,10 @@ Iterate until all four are green.
 
 ### Phase 4: Compat layer (2 days)
 
+> **Scope correction (2026-04-16 review):** the "invert the compat direction" framing assumed `apis/rust/compat/dora-node-api` already existed. It does not — neither in `dora-fork` nor in `dora-upstream`. Phase 4 task 1 has been rewritten as "create" rather than "invert". Re-estimate the 2-day budget accordingly.
+
 **Tasks:**
-1. **Invert the compat direction.** dora currently has `apis/rust/compat/dora-node-api` that re-exports dora. In 1.0, this becomes `apis/rust/compat/dora-node-api` that re-exports dora. Rename directories and swap re-exports. Add `#[deprecated]` attribute with migration note.
+1. **Create `apis/rust/compat/`** with `dora-node-api` and `dora-operator-api` crates under it. Each is a thin `pub use dora_node_api::*;` (respectively `dora_operator_api::*;`) with a crate-level `#[deprecated(since = "0.3.0", note = "renamed to dora-node-api for 1.0")]`. Publish as dora-*  0.3.x shim crates to crates.io. This is net-new code, not a directory rename.
 2. **Final dora-* shim crates for crates.io.** Publish `dora-cli 0.3.0`, `dora-node-api 0.3.0`, `dora-operator-api 0.3.0`, etc. as thin wrappers around `dora-* 1.0.0`. Each crate's `lib.rs`:
    ```rust
    #![deprecated(
@@ -445,7 +448,7 @@ Iterate until all four are green.
    - Blog post on `dora-rs.ai`: "dora 1.0: A Rust-First Rewrite, Built with Agentic Engineering."
    - Post to HN, `/r/rust`, `/r/robotics`, Rust Weekly, Discord.
    - Email the downstream user list with a direct link to the migration guide.
-8. **Archive `dora-rs/dora` repository** via GitHub Settings. Pin a README pointing at `dora-rs/dora`. Do not delete the repo — external links may exist.
+8. **Archive the fork repo `dora-rs/adora`** via GitHub Settings (per D-6a). Pin a README pointing at `dora-rs/dora`. Do not delete — external links and the 58 inline `dora-rs/adora#NNN` code-comment refs depend on it. The destination repo `dora-rs/dora` stays active and becomes the canonical 1.0+ home.
 
 **Gate:** `dora 1.0.0` is publicly released, announcement is live, archive is done.
 
@@ -959,53 +962,64 @@ Run in parallel with Phases 1-4. Purpose: generate evidence for the 1.0 release 
 
 ## 16. Appendix E: Audit commands for Phase -1
 
-Run these to collect the data needed to complete this plan.
+> **Correction (2026-04-16 review):** the previous revision had several commands where the source/target paths collapsed to the same value (pre-rename they compared `dora-rs/dora` vs `dora-rs/adora`; post-rename they compare the same path twice and produce empty diffs). Commands below are rewritten to explicitly distinguish `UPSTREAM` and `FORK` paths so the evidence is real. Run from any working directory; no `cd` needed.
 
 ```bash
-# Protocol audit: diff each message file between dora and dora
-cd ~/src/dora-rs/dora
-git remote add dora https://github.com/dora-rs/adora.git 2>/dev/null || true
-git fetch dora main
+# --- Setup: two checkouts side by side ---
+UPSTREAM=~/src/dora-rs-upstream          # dora-rs/dora (destination repo)
+FORK=~/src/dora-rs/adora                 # this repo (source repo)
+# Clone if needed:
+# git clone https://github.com/dora-rs/dora  "$UPSTREAM"
+# git clone https://github.com/dora-rs/adora "$FORK"
+
+# --- Protocol audit: diff each message file between upstream and fork ---
+cd "$FORK"
+git remote add upstream https://github.com/dora-rs/dora.git 2>/dev/null || true
+git fetch upstream main
 
 for f in cli_to_coordinator.rs common.rs config.rs coordinator_to_cli.rs \
          coordinator_to_daemon.rs daemon_to_coordinator.rs daemon_to_daemon.rs \
-         daemon_to_node.rs descriptor.rs id.rs metadata.rs node_to_daemon.rs; do
+         daemon_to_node.rs descriptor.rs id.rs metadata.rs node_to_daemon.rs \
+         auth.rs ws_protocol.rs; do
   echo "=== $f ==="
-  git diff dora/main..HEAD -- "libraries/message/src/$f" | wc -l
+  git diff upstream/main..HEAD -- "libraries/message/src/$f" | wc -l
 done
 
-# Public API diff using cargo-public-api
-cargo install cargo-public-api
-cd ~/src/dora-rs/dora
-cargo public-api -p dora-node-api > /tmp/dora-node-api.txt
-cd ~/src/dora-rs/dora  # clean checkout
-cargo public-api -p dora-node-api > /tmp/dora-node-api.txt
-diff /tmp/dora-node-api.txt /tmp/dora-node-api.txt > /tmp/api-diff.txt
+# --- Public API diff using cargo-public-api ---
+cargo install cargo-public-api 2>/dev/null || true
+( cd "$UPSTREAM" && cargo public-api -p dora-node-api ) > /tmp/upstream-node-api.txt
+( cd "$FORK"     && cargo public-api -p dora-node-api ) > /tmp/fork-node-api.txt
+diff /tmp/upstream-node-api.txt /tmp/fork-node-api.txt > /tmp/api-diff.txt
+wc -l /tmp/api-diff.txt
 
-# Downstream user grep
+# --- Downstream user grep (unchanged; searches GitHub globally) ---
 gh search code 'dora-node-api' --language rust --limit 50 --json repository \
   | jq '.[] | .repository.nameWithOwner' | sort -u > /tmp/downstream-users.txt
 
-# Crate ownership verification
-for crate in dora-node-api dora-operator-api dora-cli dora-core dora-message; do
+# --- Crate ownership verification (both old and new crate names) ---
+for crate in \
+    dora-node-api dora-operator-api dora-cli dora-core dora-message \
+    dora-node-api-python dora-operator-api-python; do
   echo "=== $crate ==="
   cargo owner --list "$crate" 2>&1 || echo "  not published"
 done
 
-# PyPI ownership
-pip index versions dora-rs 2>/dev/null || echo "dora-rs not on PyPI or index disabled"
-pip index versions dora-rs 2>/dev/null || echo "dora-rs not on PyPI or index disabled"
+# --- PyPI ownership (both package names) ---
+pip index versions dora-rs  2>/dev/null || echo "dora-rs not on PyPI"
+pip index versions dora-rs 2>/dev/null || echo "dora-rs not on PyPI"
+# (Note: after PR #186 this repo publishes as `dora-rs` on PyPI; verify it's
+# the same PyPI account that owns `dora-rs`.)
 
-# GitHub org admin list
+# --- GitHub org admin list ---
 gh api orgs/dora-rs/members --jq '.[] | .login'
 
-# Test file counts
-find ~/src/dora-rs/dora -name '*.rs' -path '*/tests/*' | wc -l
-find ~/src/dora-rs/dora -name '*.rs' -path '*/tests/*' | wc -l
+# --- Test file counts: upstream vs fork ---
+echo "upstream tests: $(find "$UPSTREAM" -name '*.rs' -path '*/tests/*' | wc -l)"
+echo "fork tests:     $(find "$FORK"     -name '*.rs' -path '*/tests/*' | wc -l)"
 
-# Cargo.toml counts
-find ~/src/dora-rs/dora -name Cargo.toml | wc -l
-find ~/src/dora-rs/dora -name Cargo.toml | wc -l
+# --- Cargo.toml counts: upstream vs fork ---
+echo "upstream Cargo.toml: $(find "$UPSTREAM" -name Cargo.toml | wc -l)"
+echo "fork Cargo.toml:     $(find "$FORK"     -name Cargo.toml | wc -l)"
 ```
 
 Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
@@ -1054,12 +1068,13 @@ Template:
 | 2026-04-07 | heyong4725 + AI | Initial draft |
 | 2026-04-16 | heyong4725 + AI | §19 Fresh Superset Audit + Pre-merge checklist (PR #285) |
 | 2026-04-16 | heyong4725 + AI | Review amendments: §1.1 terminology; relabel `dora-upstream` vs `dora-fork`; §3.4 workflow counts corrected; §13/Appendix B marked historical (Phase 2 complete); §19.5 contributor framing corrected; §19.6 unsafe count sourced; §19.7 gate-status honesty pass; D-6/D-7 reordered; R-14 wording fixed; Phase 3b vs D-7 contradiction flagged; D-0 consolidation-strategy decision point added; §19.8 checklist expanded with governance / rename-residue / scope items. See review PR description for full findings. |
+| 2026-04-16 | heyong4725 + AI | Review round 2 (follow-up from PR #286 comments): line-3 Status header reconciled with §19.7 (no longer claims "gates cleared"); Phase 5 step 8 archive target corrected (archive fork `dora-rs/adora`, not destination `dora-rs/dora`); §3.1 and Phase 4 compat-layer scope corrected — `apis/rust/compat/` does not exist in either tree, so Phase 4 is "create" not "invert"; §16 Appendix E audit commands rewritten with explicit `UPSTREAM` / `FORK` paths (prior version diffed same file against itself); §19.6 unsafe-review enforcement rewritten (the `**/unsafe*` CODEOWNERS glob does not match actual unsafe files — proposed path-scoped CODEOWNERS + content-based CI check); §19.3 dropped upstream #1610 from the gap list (PR was ported *from* the fork per its own body); 4 gaps → 3 gaps. |
 
 ---
 
 ## 19. Fresh Superset Audit (2026-04-16)
 
-**Status**: Confirms adora is a true superset with 4 specific gaps to close before merge.
+**Status**: Confirms the fork is a true superset. Originally listed 4 gaps; upstream #1610 was dropped after verification (it was ported *from* the fork), leaving **3 real gaps** to close before merge (see §19.3).
 
 ### 19.1 Crate-level comparison
 
@@ -1085,7 +1100,7 @@ Template:
 | **DoraNodeBuilder / daemon_port** | #1591 | Rust API: `DoraNode::builder().daemon_port(6789).build()`. Adora has `init_from_env` / `init_from_node_id` but no builder with custom daemon port. | Port before merge. ~50 lines. |
 | **CUDA IPC via ctypes** | #1618 | Python: `dora.cuda` replaced numba with ctypes for CUDA IPC. Adora still uses the old numba version. | Port before merge. Python-only change. |
 | **C/C++ publish workflow** | #1611 | CI: publishes pre-built C/C++ libraries on release. Adora has no equivalent. | Port the workflow file. |
-| **C API tracing subscriber** | #1610 | `dora_log()` init calls `tracing_subscriber::init()` in upstream; verify adora's version does the same. | Verify parity, port if needed. |
+| ~~C API tracing subscriber~~ | ~~#1610~~ | **Not actually a gap.** Upstream #1610 is titled "fix(c-api): improve safety and correctness of C node API" and its own body states "Ported from dora-rs/adora" — i.e. upstream *imported this from the fork*, so the fork is ahead on this item. Remove from the gap list. | Drop. |
 
 ### 19.4 Dependency versions
 
@@ -1112,7 +1127,11 @@ All major deps: adora ahead.
 Per phil-opp's request, the following guardrails must be in place before 1.0:
 
 1. **Unsafe code isolation**: All `unsafe` blocks must be in small, single-purpose functions with documented `# Safety` contracts. Current `unsafe` footprint (grep for `unsafe fn|impl|trait|{` on 2026-04-16): **177 occurrences across 34 files**, concentrated in `libraries/shared-memory-server/` (26), `libraries/extensions/ros2-bridge/src/_core/` (34), and the C/C++ API surfaces. The security audit (2026-04-16) sampled these and found the isolation rule holding; a full walkthrough is recommended before 1.0.
-2. **Human review for unsafe changes**: Add a CI check (or CODEOWNERS rule) requiring human approval for any PR that modifies `unsafe` blocks. Not yet implemented.
+2. **Human review for unsafe changes**: Add a CI check requiring human approval for any PR that modifies `unsafe` code. CODEOWNERS alone cannot express this — `unsafe` lives in ordinary files (`libraries/shared-memory-server/src/channel.rs`, `apis/c/node/src/lib.rs`, `apis/c++/{node,operator}/src/lib.rs`, `libraries/extensions/ros2-bridge/src/_core/*.rs`, `libraries/core/src/metadata.rs`, `binaries/daemon/src/node_communication/mod.rs`, etc.) and no glob like `**/unsafe*` matches them. Two workable options:
+    - **Path-scoped CODEOWNERS** covering the directories that contain 95%+ of the `unsafe` footprint: `/libraries/shared-memory-server/ /libraries/extensions/ros2-bridge/src/_core/ /apis/c/ /apis/c++/ /libraries/core/src/metadata.rs`. Still human-maintained (drifts when new unsafe lands elsewhere).
+    - **Content-based CI check** that diffs the PR and fails if any `+` line matches `\bunsafe\b` without an accompanying `# Safety:` doc comment and a `ai-unsafe-review` label. More robust; higher one-time implementation cost.
+
+    Recommendation: ship both. CODEOWNERS for the hot directories gives blanket coverage; the CI check catches drift.
 3. **Test disabling requires human approval**: Add a CI check that fails if any `#[ignore]` or `#[cfg(not(test))]` is added without an accompanying justification comment. Not yet implemented.
 4. **Unwrap budget enforcement**: Already in CI (`.unwrap-budget` file, budget: 185).
 
@@ -1130,7 +1149,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 | Governance alignment (briefing done) | In progress | phil-opp / haixuanTao briefed informally; **written sign-off not yet attached** (see §5 Phase -1 gate checklist). Add link to the GitHub issue / email thread once created. |
 | Wire protocol audit | **Pending evidence** | The D-1a "hard break, incompatible" conclusion is claimed but Appendix F is still the empty template. Run the §16 audit script and attach output as `docs/phase--1-audit-2026-04-XX.md` before marking Done. |
 | Security audit (re-verify 2026-03-21 criticals) | **Pending evidence** | The 3 memory-safety + 1 code-execution items from `docs/audit-report-2026-03-21.md` must be re-verified or waived. The separate 2026-04-16 fresh audit (0 P0, 0 P1 remaining) does not substitute — it's a different scope. Close with link to each fix PR or written waiver. |
-| Superset verification | **Done** (2026-04-16) | 4 specific gaps identified in §19.3 |
+| Superset verification | **Done** (2026-04-16, revised) | 3 real gaps identified in §19.3 (was 4; #1610 dropped after verification) |
 | Upstream alignment (#201) | **Done** (2026-04-15) | 25 PRs audited, 3 shipped — link PR closures |
 | CI green | **Done** (2026-04-16) | All platforms, all jobs (link latest green run) |
 | PyPI/crates.io ownership | Not done | 15 min task — run `cargo owner --list` for each crate; verify PyPI `dora-rs` owner |
@@ -1146,7 +1165,7 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 - [ ] Port DoraNodeBuilder / daemon_port from upstream #1591
 - [ ] Port CUDA IPC ctypes update from upstream #1618
 - [ ] Port C/C++ publish workflow from upstream #1611
-- [ ] Verify C API tracing subscriber parity with upstream #1610
+- [x] ~~Verify C API tracing subscriber parity with upstream #1610~~ — dropped; #1610 was ported *from* this fork, not a gap (see §19.3)
 
 **Governance / verification:**
 - [ ] **Written sign-off from phil-opp and haixuanTao on D-0 consolidation strategy (review PR)** — linked as artifact, not an informal brief
