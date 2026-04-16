@@ -230,8 +230,10 @@ jobs:
       - name: Record rust-dataflow
         run: |
           # `dora record <yaml>` instruments the dataflow and runs it;
-          # recording written to `recording_<timestamp>.adorec`.
-          timeout 20s dora record examples/rust-dataflow/dataflow.yml -o run.adorec || true
+          # recording written to the specified output path.
+          # Nodes are pre-built above so the 30s timeout covers only runtime.
+          # Don't swallow errors (no `|| true`) — real failures should surface.
+          timeout 30s dora record examples/rust-dataflow/dataflow.yml -o run.adorec
           test -f run.adorec || { echo "record did not produce run.adorec"; exit 1; }
           echo "recording size: $(wc -c < run.adorec) bytes"
       - name: Replay
@@ -285,7 +287,13 @@ jobs:
           test "$daemon_lines" -ge 1 || { echo "ERROR: no daemons listed"; exit 1; }
           echo "$out" | grep -q 'Active dataflows:' || { echo "ERROR: missing dataflow summary"; exit 1; }
       - name: Run a dataflow through the cluster
-        run: dora run examples/rust-dataflow/dataflow.yml --stop-after 10s
+        run: |
+          # Use `dora start` + `dora stop`, not `dora run`: a coordinator
+          # is already running from `dora up` above. `dora run` starts an
+          # embedded coordinator on the same port → "Address already in use".
+          dora start examples/rust-dataflow/dataflow.yml --detach
+          sleep 12
+          dora stop --name rust-dataflow
       - name: cluster down tears everything down cleanly
         run: |
           dora cluster down
