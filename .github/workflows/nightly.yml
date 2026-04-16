@@ -288,12 +288,26 @@ jobs:
           echo "$out" | grep -q 'Active dataflows:' || { echo "ERROR: missing dataflow summary"; exit 1; }
       - name: Run a dataflow through the cluster
         run: |
-          # Use `dora start` + `dora stop`, not `dora run`: a coordinator
-          # is already running from `dora up` above. `dora run` starts an
-          # embedded coordinator on the same port → "Address already in use".
+          # Use `dora start`, not `dora run`: a coordinator is already
+          # running from `dora up`. `dora run` starts an embedded
+          # coordinator on the same port → "Address already in use".
+          #
+          # rust-dataflow is finite (~1s), so poll until it finishes
+          # rather than sleeping + calling `dora stop` on something
+          # that's already done.
           dora start examples/rust-dataflow/dataflow.yml --detach
-          sleep 12
-          dora stop --name rust-dataflow
+          for i in $(seq 1 30); do
+            sleep 1
+            if ! dora list 2>/dev/null | grep -q rust-dataflow; then
+              echo "dataflow completed after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "ERROR: dataflow did not finish within 30s"
+              dora stop --name rust-dataflow || true
+              exit 1
+            fi
+          done
       - name: cluster down tears everything down cleanly
         run: |
           dora cluster down
