@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a**, audit re-verification + ownership verification complete (2026-04-16). Governance, wire-protocol, 2026-03-21 critical-closure, and ownership gates closed (#288, #289, #290, #293). Remaining Phase -1 gates: downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
+**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a** (2026-04-16). Five of six Phase -1 evidence gates closed: governance (#293), wire-protocol (#288), 2026-03-21 critical-closure (#289), ownership (#290), downstream outreach right-sized (#291). Remaining: dogfood campaign (#292). See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -687,7 +687,7 @@ These are questions this plan cannot answer without maintainer input or investig
 - [ ] `legacy/0.x` branch exists on `dora-rs/dora` and CI runs on it.
 - [ ] Migration guide published at `dora-rs.ai/docs/migration-from-0.x`.
 - [ ] Coverage baseline, cargo-audit clean, and dogfood evidence published as part of the release notes.
-- [ ] At least 3 downstream projects have confirmed successful migration to 1.0 via `dora migrate`.
+- [ ] No production user reports an unresolved migration blocker in the first 30 days post-release. ~~(Was: "At least 3 downstream projects have confirmed successful migration to 1.0 via `dora migrate`." Replaced 2026-04-16 after downstream assessment showed zero identifiable production deployments — see `docs/downstream-user-assessment-2026-04-16.md`.)~~
 
 **Narrative:**
 - [ ] Blog post published and received without significant backlash.
@@ -909,6 +909,10 @@ cargo check --all --exclude dora-node-api-python --exclude dora-operator-api-pyt
 
 ## 14. Appendix C: Downstream user impact checklist
 
+> **Superseded (2026-04-16)** by [`docs/downstream-user-assessment-2026-04-16.md`](downstream-user-assessment-2026-04-16.md). Code search turned up zero production deployments, so the top-10 outreach protocol is disproportionate. The assessment documents the right-sized alternative (release-note prominence + migration guide + issue-tracker watch). This appendix is kept as historical context for the original planning decision.
+
+### Historical: the original top-10 outreach protocol
+
 Before Phase -1 completes, produce this list:
 
 1. GitHub code search: `https://github.com/search?q=dora-node-api+language%3ARust&type=code`
@@ -1094,6 +1098,7 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 | 2026-04-16 | heyong4725 + AI | **D-1 resolved as D-1a** (hard protocol break) based on Phase -1 wire-protocol audit. Evidence: new file `docs/phase--1-audit-2026-04-16.md` with per-file diff of `libraries/message/src/*.rs` between `upstream/main` and local HEAD, transport-layer analysis (tarpc vs WebSocket), handshake analysis (mandatory `Hello` fork-only), and migration-guide action items. §17 Appendix F populated; §19.7 "Wire protocol audit" flipped to Done; §7 D-1 marked resolved with D-1b/D-1c struck through. Closed #288. |
 | 2026-04-16 | heyong4725 + AI | **Audit-2026-03-21 critical closure.** New file `docs/audit-2026-03-21-closure.md` records per-finding status across 23 Critical items: 17 fixed (with fix commit + current-HEAD verification — DC1 bounds check, CM2 Sync invariant docs, SEC1/SEC2 URL hardening, DC2 listener shutdown, AC1–AC4 unwrap elimination, Q1–Q4, ET1–ET2, etc.), 3 eliminated by Phase 3b (DC3, CM3, related), 3 explicitly waived (CM1 analyzed correct by Release/Acquire pair; SEC1 hash opt-in with warning + strict-mode deferred to 1.1; SEC3 TLS deferred post-1.0 to reverse-proxy pattern). §3.6 annotated; §19.7 "Security audit" row flipped to Done. Closed #289. |
 | 2026-04-16 | heyong4725 + AI | **PyPI + crates.io ownership verification.** New file `docs/ownership-verification-2026-04-16.md`. Queried crates.io public API for 30 workspace crates: 19 published, 11 new. Of the 19 published, 17 have `github:dora-rs:core` team ownership (heyong4725 + 3 others are team members — publish works); 3 crates (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) missing the team and need `cargo owner --add` from haixuanTao (A1). 11 crates new to 1.0 need publish/no-publish decision (A4). PyPI both packages present (`dora-rs` + `dora-rs-cli` at 0.5.0); maintainer list requires manual web-UI inspection (A2–A3). §19.7 PyPI/crates.io row flipped to Done; §19.8 pre-merge checklist expanded with A1–A4. Closed #290. |
+| 2026-04-16 | heyong4725 + AI | **Downstream user assessment (scope right-sized).** New file `docs/downstream-user-assessment-2026-04-16.md`. Per owner direction ("dora is mostly POCs, not production"), ran a quick GitHub code-search sweep across Rust + Python + pyproject queries. ~30 external repos surfaced; top-5 are 12–69 stars (YOR-robot, Ekumen/lekiwi, FlagOpen/RoboDriver, kornia/bubbaloop, mofa-studio); **zero production deployments identified**. §14 Appendix C top-10 outreach protocol annotated as superseded; §11 success criterion "3 downstream projects confirm migration via `dora migrate`" replaced by "no unresolved production migration blockers in first 30 days post-release". Right-sized plan: release-note prominence + migration guide + 30-day issue-tracker watch + community ping. Trigger-to-expand defined for surprise production users. §19.7 row flipped to Done. Closed #291. |
 
 ---
 
@@ -1183,7 +1188,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 | Upstream alignment (#201) | **Done** (2026-04-15) | 25 PRs audited, 3 shipped — link PR closures |
 | CI green | **Done** (2026-04-16) | All platforms, all jobs (link latest green run) |
 | PyPI/crates.io ownership | **Done** (2026-04-16) | [`docs/ownership-verification-2026-04-16.md`](ownership-verification-2026-04-16.md) — 17 of 19 published crates have `github:dora-rs:core` team ownership (heyong4725 + phil-opp + haixuanTao + bobdingAI are team members). 3 crates missing the team (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) — haixuanTao runs one `cargo owner --add` per crate before Phase 5. 10 crates not yet published need per-crate publish/no-publish decision. PyPI maintainer list requires manual inspection via web UI (tracked as A2–A3 action items). Closed #290. |
-| Downstream user list | Not done | 1 hour task — run §14 code-search, produce top-10 ranked list |
+| Downstream user list + outreach | **Done — scope right-sized** (2026-04-16) | [`docs/downstream-user-assessment-2026-04-16.md`](downstream-user-assessment-2026-04-16.md). Code search surfaced ~30 external repos; top-5 are 12–69 stars (YOR-robot, Ekumen/lekiwi, FlagOpen/RoboDriver, kornia/bubbaloop, mofa-studio); **zero production deployments identified**. Top-10 outreach protocol replaced by release-note prominence + migration guide + 30-day issue-tracker watch + community ping. Trigger-to-expand defined for surprise production users. Closed #291. |
 | Dogfood campaign | Not done | Can run parallel with Phase 0-1 per §15 Appendix D |
 | CLA / DCO status | Not done | Reconcile whether contributors to either tree signed a CLA (§9 Open Question 8). Blocks contributor attribution strategy. |
 
