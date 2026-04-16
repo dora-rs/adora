@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — several Phase -1 gates still pending evidence (see §19.7). Governance is briefed but has no written sign-off; wire-protocol audit and 2026-03-21 security-audit re-verification still owe artifacts. Not ready for Phase 0 until §19.8 pre-merge checklist is closed.
+**Status**: Active — D-0 resolved as **D-0a** (fork tree overwrites upstream as 1.0 baseline; confirmed 2026-04-16 by heyong4725 + contractors phil-opp and haixuanTao). Governance gate closed. Remaining Phase -1 gates: wire-protocol audit (#288), 2026-03-21 critical re-verification (#289), PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -493,18 +493,16 @@ These are the decisions that cannot be made unilaterally. Each needs explicit re
 
 ### D-0: Consolidation strategy — tree-replacement merge vs staged upstream PRs
 
-**Context:** the entire plan below assumes a single tree-replacement merge of `dora-fork` into `dora-upstream`. An alternative strategy exists: contribute the fork's superset features upstream as a sequence of individual PRs over 3–6 months, never doing a "big bang" merge. This is not a hypothetical — R-5 ("maintainers object to consolidation") is rated **Critical** impact, and the fallback if governance goes that direction is not documented today.
+**Resolved (2026-04-16):** **D-0a** — tree-replacement merge. The fork tree takes over / overwrites upstream as the dora 1.0 baseline, since the fork is the production superset. Confirmed by heyong4725 in [PR #286](https://github.com/dora-rs/adora/pull/286) following prior contractor briefings with phil-opp and haixuanTao. R-5 (maintainer objection) is retired.
 
-**Options:**
-- **D-0a:** Tree-replacement merge (the rest of this plan). One merge commit, ~9,600 lines changed, preserves fork history as a second parent. Fast, dramatic, maximum credit for the rewrite, maximum risk to community trust.
-- **D-0b:** Staged upstream PRs. Break the superset into ~20–40 feature-sized PRs, contribute them upstream over 3–6 months. Slower, less dramatic, lower reputational risk, matches upstream's existing PR-review norms. Agentic-engineering story is distributed across the PRs rather than concentrated in one release.
-- **D-0c:** Hybrid. Contribute the 10–15 largest / cleanest features upstream as individual PRs first (building trust); then do a mechanical merge for the remainder once the trust is established. Longest timeline but lowest risk.
+**Context:** the rest of the plan assumes a single tree-replacement merge of `dora-fork` into `dora-upstream`. Alternatives considered and rejected for this decision:
 
-**Recommendation:** this decision depends entirely on the Phase -1 governance conversation. If phil-opp and haixuanTao are supportive of the rewrite framing and willing to absorb a big merge, D-0a. If they want to see the work incrementally first, D-0c. If they object to the consolidation premise, D-0b or a quiet downgrade of this plan to "contribute selectively upstream and keep the fork as a playground".
+- ~~**D-0b:** Staged upstream PRs over 3–6 months~~ — rejected; superset delta is too large and the consolidation narrative depends on a clean 1.0 cut.
+- ~~**D-0c:** Hybrid~~ — rejected; slows down release without meaningfully reducing risk, given contractor buy-in.
 
-**Decision owner:** maintainers (phil-opp, haixuanTao) + heyong4725
+**Decision owner (resolved):** heyong4725 with contractor (phil-opp, haixuanTao) concurrence.
 
-**If D-0b or D-0c is selected**, the rest of this plan (Phases 0–5, decision points D-1 through D-7, all Appendices) needs re-scoping. Do not start Phase 0 without a resolution on D-0.
+---
 
 ### D-1: Wire protocol compatibility strategy
 
@@ -1081,6 +1079,7 @@ Template:
 | 2026-04-16 | heyong4725 + AI | Review round 2 (follow-up from PR #286 comments): line-3 Status header reconciled with §19.7 (no longer claims "gates cleared"); Phase 5 step 8 archive target corrected (archive fork `dora-rs/adora`, not destination `dora-rs/dora`); §3.1 and Phase 4 compat-layer scope corrected — `apis/rust/compat/` does not exist in either tree, so Phase 4 is "create" not "invert"; §16 Appendix E audit commands rewritten with explicit `UPSTREAM` / `FORK` paths (prior version diffed same file against itself); §19.6 unsafe-review enforcement rewritten (the `**/unsafe*` CODEOWNERS glob does not match actual unsafe files — proposed path-scoped CODEOWNERS + content-based CI check); §19.3 dropped upstream #1610 from the gap list (PR was ported *from* the fork per its own body); 4 gaps → 3 gaps. |
 | 2026-04-16 | heyong4725 + AI | Review round 3 (follow-up from second PR #286 review): §19.6 action list and §19.8 checklist updated to use path-scoped CODEOWNERS + content-based CI (they still referenced the broken `**/unsafe*` glob as the required step); Appendix E PyPI ownership check fixed (was running `pip index versions dora-rs` twice — verified both upstream and fork publish the same two names `dora-rs` and `dora-rs-cli`, so the check now loops both names and records owner-list URLs for manual ownership verification); §19.6 "Unsafe code isolation" softened from "isolation rule holding" to "target state documented; current compliance partial" with a verified example (channel.rs send_raw / receive / disconnect / data_len / data have inline `unsafe { }` in safe methods and 0 `# Safety:` docs). |
 | 2026-04-16 | heyong4725 + AI | Review round 4 (PR #286 third review): §1 headline top-contributor row — prior cell listed phil-opp 1,786 / haixuanTao 1,828 for the `dora-upstream` column but those are `dora-fork` local git-shortlog numbers. Verified actual upstream contributions via `gh api repos/dora-rs/dora/contributors` = phil-opp 2,023 / haixuanTao 1,895. Replaced with the upstream-authoritative figure and added a footnote naming the metric ("GitHub contributions metric" vs `git shortlog`). §19.5 contributor-count row — "upstream 115 / fork 90" had no traceable provenance; upstream contributors API returns 91. Replaced with both methods named, both commands reproducible, and a note that the prior 115/90 framing is not to be reused. |
+| 2026-04-16 | heyong4725 + AI | Governance resolution: **D-0 resolved as D-0a** (fork tree overwrites upstream as 1.0 baseline) per heyong4725 confirmation; phil-opp and haixuanTao are contractors and were briefed. §1 Status line updated; §7 D-0 marked resolved; §19.7 Governance row flipped to Done and linked to closed #293. Remaining Phase -1 evidence gates (wire-protocol audit, audit criticals re-verification, ownership, outreach, dogfood) still open as #288, #289, #290, #291, #292 — tracked under epic #287. |
 
 ---
 
@@ -1163,7 +1162,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Governance alignment (briefing done) | In progress | phil-opp / haixuanTao briefed informally; **written sign-off not yet attached** (see §5 Phase -1 gate checklist). Add link to the GitHub issue / email thread once created. |
+| Governance alignment | **Done** (2026-04-16) | phil-opp and haixuanTao are contractors and were briefed. D-0 resolved as **D-0a** (tree takeover). Artifact: heyong4725 confirmation on [PR #286](https://github.com/dora-rs/adora/pull/286) + prior contractor conversations. Closed via #293. |
 | Wire protocol audit | **Pending evidence** | The D-1a "hard break, incompatible" conclusion is claimed but Appendix F is still the empty template. Run the §16 audit script and attach output as `docs/phase--1-audit-2026-04-XX.md` before marking Done. |
 | Security audit (re-verify 2026-03-21 criticals) | **Pending evidence** | The 3 memory-safety + 1 code-execution items from `docs/audit-report-2026-03-21.md` must be re-verified or waived. The separate 2026-04-16 fresh audit (0 P0, 0 P1 remaining) does not substitute — it's a different scope. Close with link to each fix PR or written waiver. |
 | Superset verification | **Done** (2026-04-16, revised) | 3 real gaps identified in §19.3 (was 4; #1610 dropped after verification) |
