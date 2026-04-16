@@ -257,9 +257,10 @@ impl DoraNode {
 
     /// Create a builder for configuring a node connection.
     ///
-    /// Useful when you need to customise the daemon port or explicitly mark
-    /// the node as dynamic. [`init_from_env`](Self::init_from_env) and
-    /// [`init_from_node_id`](Self::init_from_node_id) cover the common cases.
+    /// Setting a `node_id` selects the dynamic-node path; without one, `build()`
+    /// falls back to [`init_from_env`](Self::init_from_env). Use this builder
+    /// when you need a custom daemon port — the other init functions cover the
+    /// common cases.
     ///
     /// ```no_run
     /// use dora_node_api::DoraNode;
@@ -267,7 +268,6 @@ impl DoraNode {
     ///
     /// let (mut node, mut events) = DoraNode::builder()
     ///     .node_id(NodeId::from("plot".to_string()))
-    ///     .dynamic()
     ///     .daemon_port(6789)
     ///     .build()
     ///     .expect("Could not init node");
@@ -288,7 +288,7 @@ impl DoraNode {
     /// ```
     ///
     pub fn init_from_node_id(node_id: NodeId) -> NodeResult<(Self, EventStream)> {
-        Self::builder().node_id(node_id).dynamic().build()
+        Self::builder().node_id(node_id).build()
     }
 
     /// Dynamic initialization function for nodes that are sometimes used as dynamic nodes.
@@ -1409,28 +1409,21 @@ impl DoraNode {
 
 /// Builder for initializing a node with custom connection parameters.
 ///
-/// Created via [`DoraNode::builder()`]. Most callers should prefer
-/// [`DoraNode::init_from_env`] or [`DoraNode::init_from_node_id`] — the builder
-/// exists for cases where the daemon listens on a non-default port or you need
-/// to force dynamic-node semantics explicitly.
+/// Created via [`DoraNode::builder()`]. Callers who don't need a custom daemon
+/// port should prefer [`DoraNode::init_from_env`] or
+/// [`DoraNode::init_from_node_id`]. Setting [`node_id`](Self::node_id) selects
+/// the dynamic-node path; otherwise [`build`](Self::build) falls back to
+/// [`DoraNode::init_from_env`].
 #[derive(Default)]
 pub struct DoraNodeBuilder {
     node_id: Option<NodeId>,
-    dynamic: bool,
     daemon_port: Option<u16>,
 }
 
 impl DoraNodeBuilder {
-    /// Set the node ID (required for dynamic nodes).
+    /// Set the node ID. Presence of a node ID selects the dynamic-node path.
     pub fn node_id(mut self, node_id: NodeId) -> Self {
         self.node_id = Some(node_id);
-        self
-    }
-
-    /// Mark this node as a dynamic node that connects to an already-running
-    /// daemon rather than reading `DORA_NODE_CONFIG` from the environment.
-    pub fn dynamic(mut self) -> Self {
-        self.dynamic = true;
         self
     }
 
@@ -1444,13 +1437,9 @@ impl DoraNodeBuilder {
 
     /// Build and connect the node.
     pub fn build(self) -> NodeResult<(DoraNode, EventStream)> {
-        if !self.dynamic {
+        let Some(node_id) = self.node_id else {
             return DoraNode::init_from_env();
-        }
-
-        let node_id = self
-            .node_id
-            .ok_or_else(|| NodeError::Init("node_id is required for dynamic nodes".into()))?;
+        };
 
         let port = self.daemon_port.unwrap_or_else(|| {
             match std::env::var(DORA_DAEMON_LOCAL_LISTEN_PORT_ENV) {
@@ -1465,9 +1454,8 @@ impl DoraNodeBuilder {
         });
         let daemon_address = (LOCALHOST, port).into();
 
-        let mut channel = DaemonChannel::new_tcp(daemon_address)
-            .context("Could not connect to the daemon")
-            .map_err(|e| NodeError::Init(format!("{e:#}")))?;
+        let mut channel =
+            DaemonChannel::new_tcp(daemon_address).context("Could not connect to the daemon")?;
         let clock = Arc::new(uhlc::HLC::default());
 
         let reply = channel
@@ -1475,8 +1463,7 @@ impl DoraNodeBuilder {
                 inner: DaemonRequest::NodeConfig { node_id },
                 timestamp: clock.new_timestamp(),
             })
-            .wrap_err("failed to request node config from daemon")
-            .map_err(|e| NodeError::Init(format!("{e:#}")))?;
+            .wrap_err("failed to request node config from daemon")?;
 
         match reply {
             DaemonReply::NodeConfig {

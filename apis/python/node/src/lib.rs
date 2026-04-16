@@ -138,10 +138,8 @@ impl Node {
         let (node, events) = if let Some(node_id) = node_id {
             let node_id = node_id.parse::<NodeId>().map_err(|e| eyre::eyre!("{e}"))?;
             if let Some(port) = daemon_port {
-                // Explicit port: always use the builder in dynamic mode.
                 DoraNode::builder()
                     .node_id(node_id)
-                    .dynamic()
                     .daemon_port(port)
                     .build()
                     .map_err(|e| eyre::eyre!("{e}"))
