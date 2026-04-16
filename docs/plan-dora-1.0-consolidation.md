@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a** (2026-04-16). Five of six Phase -1 evidence gates closed: governance (#293), wire-protocol (#288), 2026-03-21 critical-closure (#289), ownership (#290), downstream outreach right-sized (#291). Remaining: dogfood campaign (#292). See tracking epic #287.
+**Status**: **Phase -1 complete (2026-04-16).** D-0 = D-0a, D-1 = D-1a. All six Phase -1 evidence gates resolved: governance (#293), wire-protocol (#288), 2026-03-21 critical-closure (#289), ownership (#290), downstream outreach right-sized (#291), dogfood rescoped to Phase 5b (#292). Phase 0 ready to start. Release flow is now **Phase 5a (tag 1.0-rc) → Phase 5b (RC dogfood + stabilization, open-ended) → Phase 5c (tag 1.0.0 GA)**. See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -431,28 +431,57 @@ Iterate until all four are green.
 
 **Gate:** a sample dora 0.x project (pick one from the downstream user list) builds and runs on dora 1.0 with only automated `dora migrate` changes plus the documented manual steps.
 
-### Phase 5: Release (2 days)
+### Phase 5a: Release candidate (2 days to tag; stabilization window follows)
 
-**Tasks:**
-1. Final verification: `cargo test --all`, full E2E, benchmark regression, smoke tests, cargo-audit clean, coverage baseline reported.
-2. Dogfood campaign evidence attached to the release PR. If dogfood found issues, fix them first.
-3. Merge `v1.0-rewrite` → `main` on dora repo via `--no-ff` merge to preserve the phased history.
-4. Tag `v1.0.0` on the merge commit. Annotated, signed if your release norm is to sign.
-5. Push tag. Release workflow fires:
+**Strategy (2026-04-16 revision):** the original plan ran the dogfood campaign in parallel with Phases 1–4 against the pre-merge fork tree. That's wasted testing — it exercises code that's about to be rewritten (rename + Zenoh SHM + compat layer). Dogfood belongs **on the actual consolidated tree**, so Phase 5 splits into an **RC tag + stabilization window + GA tag**. We eat our own dogfood *as the 1.0-rc*, find the real issues, fix them, then cut GA.
+
+**Phase 5a tasks:**
+1. Final CI verification: `cargo test --all`, full E2E, benchmark regression, smoke tests, cargo-audit clean, coverage baseline reported.
+2. Merge `v1.0-rewrite` → `main` on `dora-rs/dora` via `--no-ff` merge to preserve the phased history.
+3. Tag `v1.0.0-rc.1` on the merge commit. Annotated, signed if release norm is to sign.
+4. Push tag. Release workflow fires in **rc mode**:
    - Builds cross-platform CLI binaries.
+   - Publishes `dora-* 1.0.0-rc.1` to crates.io with `--allow-features` for pre-release (crates.io allows pre-release versions).
+   - Publishes `dora-rs 1.0.0rc1` to PyPI (PyPI pre-release semantics).
+   - Creates a **GitHub pre-release** (not a full release), with release notes labelled "release candidate — feedback welcome".
+5. Announce the RC only to developer channels (GitHub Discussions, Discord). **No blog post, no HN, no Reddit yet.**
+
+**Phase 5b: RC dogfood + stabilization window (≥ 1 week, open-ended until clean)**
+
+Run the dogfood campaign per [§15 Appendix D](#15-appendix-d-dogfood-campaign-plan) against the 1.0-rc tree. Measurements: uptime, unexpected restarts, shared-memory OOMs, dropped messages, p50/p99/p99.9 latency, memory growth, CPU. Target: 7 clean days (no gate resets allowed — a 4-day run plus a fix plus a new 7-day run is the next attempt, not a 3-day extension).
+
+If the RC surfaces blockers:
+- Fix on `main`.
+- Tag `v1.0.0-rc.2` (etc.) with each iteration.
+- Re-run the 7-day dogfood clock from the new tag.
+
+RC-window exit criteria:
+- 7-day clean dogfood run against the most-recent `rc.N` tag.
+- No open P0 or P1 bug against the 1.0 series.
+- Migration guide validated on at least the fork's own examples and one external repo (if any volunteer from the downstream assessment).
+
+**Gate (Phase 5b):** RC window is closed when dogfood evidence is published, outstanding P0/P1 are zero, and the decision to promote the RC to GA is recorded. No fixed calendar window — ship when it's ready, not when the week ends.
+
+### Phase 5c: GA release (1 day)
+
+Once the RC is stable:
+
+1. Tag `v1.0.0` on the same commit the final `rc.N` pointed at.
+2. Release workflow fires in **GA mode**:
+   - Re-builds cross-platform CLI binaries with the final version string.
    - Publishes `dora-* 1.0.0` to crates.io (in dependency order).
    - Publishes `dora-rs 1.0.0` to PyPI.
-   - Creates GitHub release with release notes.
-6. After `dora-* 1.0.0` is live on crates.io:
-   - Publish the deprecated `dora-* 0.3.0` shims pointing at dora.
+   - Creates the GitHub release (full, not pre-release).
+3. After `dora-* 1.0.0` is live on crates.io:
+   - Publish the deprecated `dora-* 0.3.0` shims pointing at dora (if the compat shims from Phase 4 are kept — note Phase 4 scope was re-opened in the 2026-04-16 review: `apis/rust/compat/` does not exist and the compat layer is net-new code, not a directory rename).
    - Publish `dora-rs 0.3.0` PyPI shim.
-7. **Announcement:**
+4. **Announcement:**
    - Blog post on `dora-rs.ai`: "dora 1.0: A Rust-First Rewrite, Built with Agentic Engineering."
    - Post to HN, `/r/rust`, `/r/robotics`, Rust Weekly, Discord.
-   - Email the downstream user list with a direct link to the migration guide.
-8. **Archive the fork repo `dora-rs/adora`** via GitHub Settings (per D-6a). Pin a README pointing at `dora-rs/dora`. Do not delete — external links and the 58 inline `dora-rs/adora#NNN` code-comment refs depend on it. The destination repo `dora-rs/dora` stays active and becomes the canonical 1.0+ home.
+   - Release note links the dogfood evidence file from the RC window.
+5. **Archive the fork repo `dora-rs/adora`** via GitHub Settings (per D-6a). Pin a README pointing at `dora-rs/dora`. Do not delete — external links and the 58 inline `dora-rs/adora#NNN` code-comment refs depend on it. The destination repo `dora-rs/dora` stays active and becomes the canonical 1.0+ home.
 
-**Gate:** `dora 1.0.0` is publicly released, announcement is live, archive is done.
+**Gate (Phase 5c):** `dora 1.0.0` is publicly released, announcement is live, archive is done.
 
 ### Phase 6: Post-release support (ongoing for 6 weeks)
 
@@ -655,23 +684,25 @@ These are questions this plan cannot answer without maintainer input or investig
 
 | Phase | Description | Duration | Dependencies |
 |---|---|---|---|
-| -1 | Governance, prereqs, protocol audit | 1 week | — |
+| -1 | Governance, prereqs, protocol audit, ownership, criticals | 1 week | — |
 | 0 | Preparation (tags, branches, freeze) | 2 days | Phase -1 complete |
 | 1 | Mechanical merge | 1 day | Phase 0 complete |
 | 2 | Rename pass | 2-3 days | Phase 1 green |
 | 3 | Test and example union | 3-5 days | Phase 2 green |
 | 3b | Zenoh SHM migration (data plane, D-7c) | 2-3 days | Phase 3 green |
 | 4 | Compat layer | 2 days | Phase 3b green |
-| 5 | Release | 2 days | Phase 4 green + dogfood evidence |
-| 6 | Post-release support | 6 weeks (ongoing) | Phase 5 complete |
+| 5a | Tag `1.0-rc.1` + pre-release publish | 2 days | Phase 4 green |
+| 5b | RC dogfood + stabilization (rc.2, rc.3, ... as needed) | ≥ 1 week, open-ended | Phase 5a tagged |
+| 5c | Tag `1.0.0` GA + publish + announcement + archive | 1 day | Phase 5b clean |
+| 6 | Post-release support | 6 weeks (ongoing) | Phase 5c complete |
 
-**Critical path:** ~4-5 weeks from Phase -1 kickoff to 1.0 tag, assuming no blockers in governance or protocol audit. Phase 3b adds 2-3 days vs. the original estimate.
+**Critical path:** ~4–5 weeks from Phase -1 kickoff to `1.0-rc.1`, then ≥ 1 week open-ended to GA. The RC window is deliberately uncapped — ship when the dogfood is clean, not when a calendar box expires. Phase 3b adds 2-3 days vs. the original estimate.
 
 **Parallel tracks during Phases 1-4:**
-- Dogfood campaign (1 week of real-workload running)
+- ~~Dogfood campaign~~ — moved to Phase 5b per 2026-04-16 owner direction.
 - Q1-minimum test infrastructure (coverage baseline, cargo-audit, see QA plan)
 - Blog post and migration guide drafting
-- Downstream user outreach
+- ~~Downstream user outreach~~ — right-sized to release-note + watch per 2026-04-16 assessment.
 
 ---
 
@@ -936,7 +967,7 @@ Before Phase -1 completes, produce this list:
 
 ## 15. Appendix D: Dogfood campaign plan
 
-Run in parallel with Phases 1-4. Purpose: generate evidence for the 1.0 release claim.
+> **Rescoped 2026-04-16:** originally specified to run in parallel with Phases 1–4 against the pre-merge fork tree. Changed per owner direction — dogfood runs in **Phase 5b** against the tagged `1.0-rc` on the actual consolidated tree, not against the fork. Pre-merge testing would exercise code that's about to be rewritten (rename + Zenoh SHM + compat layer); post-merge RC testing exercises the actual shipping code. Purpose unchanged: generate evidence for the 1.0 release claim.
 
 **Workload:** pick a real robotics scenario that exercises the full stack. Recommended:
 - Rust sensor node producing Arrow-formatted camera frames at 30 Hz.
@@ -1099,6 +1130,7 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 | 2026-04-16 | heyong4725 + AI | **Audit-2026-03-21 critical closure.** New file `docs/audit-2026-03-21-closure.md` records per-finding status across 23 Critical items: 17 fixed (with fix commit + current-HEAD verification — DC1 bounds check, CM2 Sync invariant docs, SEC1/SEC2 URL hardening, DC2 listener shutdown, AC1–AC4 unwrap elimination, Q1–Q4, ET1–ET2, etc.), 3 eliminated by Phase 3b (DC3, CM3, related), 3 explicitly waived (CM1 analyzed correct by Release/Acquire pair; SEC1 hash opt-in with warning + strict-mode deferred to 1.1; SEC3 TLS deferred post-1.0 to reverse-proxy pattern). §3.6 annotated; §19.7 "Security audit" row flipped to Done. Closed #289. |
 | 2026-04-16 | heyong4725 + AI | **PyPI + crates.io ownership verification.** New file `docs/ownership-verification-2026-04-16.md`. Queried crates.io public API for 30 workspace crates: 19 published, 11 new. Of the 19 published, 17 have `github:dora-rs:core` team ownership (heyong4725 + 3 others are team members — publish works); 3 crates (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) missing the team and need `cargo owner --add` from haixuanTao (A1). 11 crates new to 1.0 need publish/no-publish decision (A4). PyPI both packages present (`dora-rs` + `dora-rs-cli` at 0.5.0); maintainer list requires manual web-UI inspection (A2–A3). §19.7 PyPI/crates.io row flipped to Done; §19.8 pre-merge checklist expanded with A1–A4. Closed #290. |
 | 2026-04-16 | heyong4725 + AI | **Downstream user assessment (scope right-sized).** New file `docs/downstream-user-assessment-2026-04-16.md`. Per owner direction ("dora is mostly POCs, not production"), ran a quick GitHub code-search sweep across Rust + Python + pyproject queries. ~30 external repos surfaced; top-5 are 12–69 stars (YOR-robot, Ekumen/lekiwi, FlagOpen/RoboDriver, kornia/bubbaloop, mofa-studio); **zero production deployments identified**. §14 Appendix C top-10 outreach protocol annotated as superseded; §11 success criterion "3 downstream projects confirm migration via `dora migrate`" replaced by "no unresolved production migration blockers in first 30 days post-release". Right-sized plan: release-note prominence + migration guide + 30-day issue-tracker watch + community ping. Trigger-to-expand defined for surprise production users. §19.7 row flipped to Done. Closed #291. |
+| 2026-04-16 | heyong4725 + AI | **Release flow restructured: Phase 5 split into 5a (rc) + 5b (RC dogfood window) + 5c (GA).** Per owner direction, dogfood runs on the tagged `1.0-rc` against the actual consolidated tree, not on the pre-merge fork. Rationale: pre-merge testing exercises code that's about to change (rename + Zenoh SHM + compat layer); RC testing exercises the actual shipping tree. Phase 5b window is open-ended — ships on clean dogfood, not on a calendar box. §5 Phase 5 rewritten as 5a/5b/5c; §10 timeline table updated with the three-tag cadence; §15 Appendix D rescoped to Phase 5b; §19.7 dogfood row marked "Rescoped — not a Phase -1 gate"; §19.8 checkbox flipped to done-via-rescope; §1 Status line now reads "Phase -1 complete". #292 rescoped to RC-window tracker rather than closed. |
 
 ---
 
@@ -1189,7 +1221,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 | CI green | **Done** (2026-04-16) | All platforms, all jobs (link latest green run) |
 | PyPI/crates.io ownership | **Done** (2026-04-16) | [`docs/ownership-verification-2026-04-16.md`](ownership-verification-2026-04-16.md) — 17 of 19 published crates have `github:dora-rs:core` team ownership (heyong4725 + phil-opp + haixuanTao + bobdingAI are team members). 3 crates missing the team (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) — haixuanTao runs one `cargo owner --add` per crate before Phase 5. 10 crates not yet published need per-crate publish/no-publish decision. PyPI maintainer list requires manual inspection via web UI (tracked as A2–A3 action items). Closed #290. |
 | Downstream user list + outreach | **Done — scope right-sized** (2026-04-16) | [`docs/downstream-user-assessment-2026-04-16.md`](downstream-user-assessment-2026-04-16.md). Code search surfaced ~30 external repos; top-5 are 12–69 stars (YOR-robot, Ekumen/lekiwi, FlagOpen/RoboDriver, kornia/bubbaloop, mofa-studio); **zero production deployments identified**. Top-10 outreach protocol replaced by release-note prominence + migration guide + 30-day issue-tracker watch + community ping. Trigger-to-expand defined for surprise production users. Closed #291. |
-| Dogfood campaign | Not done | Can run parallel with Phase 0-1 per §15 Appendix D |
+| Dogfood campaign | **Rescoped — not a Phase -1 gate** (2026-04-16) | Per owner direction, dogfood runs in **Phase 5b** against the tagged `1.0-rc`, not in parallel with Phases 0–1. Pre-merge testing would exercise code that's about to be rewritten; RC testing exercises the actual shipping tree. Tracked as Phase 5b exit criterion, not Phase -1 blocker. #292 reassigned. |
 | CLA / DCO status | Not done | Reconcile whether contributors to either tree signed a CLA (§9 Open Question 8). Blocks contributor attribution strategy. |
 
 ### 19.8 Pre-merge checklist (based on this audit + 2026-04-16 review)
@@ -1212,7 +1244,7 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 - [ ] **Reconcile CLA / DCO status of agent-authored commits (review PR)** — §9 Open Question 8
 - [ ] Fill in Appendix F protocol-audit evidence; downgrade §19.7 Done claims until attached **(review PR)**
 - [ ] Re-verify / waive the 3 memory-safety + 1 code-execution findings from `docs/audit-report-2026-03-21.md` **(review PR)**
-- [ ] Start dogfood campaign (runs in parallel with Phases 0-1)
+- [x] ~~Start dogfood campaign (runs in parallel with Phases 0-1)~~ — rescoped 2026-04-16 to Phase 5b (post-RC tag); tracked as Phase 5b exit criterion, not Phase -1 blocker.
 - [ ] Produce top-10 downstream user list (§14 Appendix C)
 
 **Policy / repo hygiene:**
