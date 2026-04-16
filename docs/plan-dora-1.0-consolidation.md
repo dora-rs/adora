@@ -1004,11 +1004,21 @@ for crate in \
   cargo owner --list "$crate" 2>&1 || echo "  not published"
 done
 
-# --- PyPI ownership (both package names) ---
-pip index versions dora-rs  2>/dev/null || echo "dora-rs not on PyPI"
-pip index versions dora-rs 2>/dev/null || echo "dora-rs not on PyPI"
-# (Note: after PR #186 this repo publishes as `dora-rs` on PyPI; verify it's
-# the same PyPI account that owns `dora-rs`.)
+# --- PyPI ownership ---
+# Both upstream and fork publish to the same two PyPI package names:
+#   `dora-rs`      (node API — from apis/python/node/pyproject.toml)
+#   `dora-rs-cli`  (CLI      — from binaries/cli/pyproject.toml)
+# So there's no old-vs-new collision to detect; the real question is whether
+# the PyPI account that currently owns each name is the same entity that
+# will publish 1.0. Verify existence + owner for both:
+for pkg in dora-rs dora-rs-cli; do
+  echo "=== $pkg ==="
+  pip index versions "$pkg" 2>/dev/null || echo "  $pkg not on PyPI"
+  # Owner check requires a PyPI maintainer session; record the owner list
+  # manually from https://pypi.org/project/$pkg/ and compare to this repo
+  # org admins below.
+  echo "  Owner list: https://pypi.org/project/$pkg/"
+done
 
 # --- GitHub org admin list ---
 gh api orgs/dora-rs/members --jq '.[] | .login'
@@ -1069,6 +1079,7 @@ Template:
 | 2026-04-16 | heyong4725 + AI | §19 Fresh Superset Audit + Pre-merge checklist (PR #285) |
 | 2026-04-16 | heyong4725 + AI | Review amendments: §1.1 terminology; relabel `dora-upstream` vs `dora-fork`; §3.4 workflow counts corrected; §13/Appendix B marked historical (Phase 2 complete); §19.5 contributor framing corrected; §19.6 unsafe count sourced; §19.7 gate-status honesty pass; D-6/D-7 reordered; R-14 wording fixed; Phase 3b vs D-7 contradiction flagged; D-0 consolidation-strategy decision point added; §19.8 checklist expanded with governance / rename-residue / scope items. See review PR description for full findings. |
 | 2026-04-16 | heyong4725 + AI | Review round 2 (follow-up from PR #286 comments): line-3 Status header reconciled with §19.7 (no longer claims "gates cleared"); Phase 5 step 8 archive target corrected (archive fork `dora-rs/adora`, not destination `dora-rs/dora`); §3.1 and Phase 4 compat-layer scope corrected — `apis/rust/compat/` does not exist in either tree, so Phase 4 is "create" not "invert"; §16 Appendix E audit commands rewritten with explicit `UPSTREAM` / `FORK` paths (prior version diffed same file against itself); §19.6 unsafe-review enforcement rewritten (the `**/unsafe*` CODEOWNERS glob does not match actual unsafe files — proposed path-scoped CODEOWNERS + content-based CI check); §19.3 dropped upstream #1610 from the gap list (PR was ported *from* the fork per its own body); 4 gaps → 3 gaps. |
+| 2026-04-16 | heyong4725 + AI | Review round 3 (follow-up from second PR #286 review): §19.6 action list and §19.8 checklist updated to use path-scoped CODEOWNERS + content-based CI (they still referenced the broken `**/unsafe*` glob as the required step); Appendix E PyPI ownership check fixed (was running `pip index versions dora-rs` twice — verified both upstream and fork publish the same two names `dora-rs` and `dora-rs-cli`, so the check now loops both names and records owner-list URLs for manual ownership verification); §19.6 "Unsafe code isolation" softened from "isolation rule holding" to "target state documented; current compliance partial" with a verified example (channel.rs send_raw / receive / disconnect / data_len / data have inline `unsafe { }` in safe methods and 0 `# Safety:` docs). |
 
 ---
 
@@ -1126,7 +1137,9 @@ All major deps: adora ahead.
 
 Per phil-opp's request, the following guardrails must be in place before 1.0:
 
-1. **Unsafe code isolation**: All `unsafe` blocks must be in small, single-purpose functions with documented `# Safety` contracts. Current `unsafe` footprint (grep for `unsafe fn|impl|trait|{` on 2026-04-16): **177 occurrences across 34 files**, concentrated in `libraries/shared-memory-server/` (26), `libraries/extensions/ros2-bridge/src/_core/` (34), and the C/C++ API surfaces. The security audit (2026-04-16) sampled these and found the isolation rule holding; a full walkthrough is recommended before 1.0.
+1. **Unsafe code isolation (target state — not yet fully met)**: The rule phil-opp asked for is that every `unsafe` block sits in a small, single-purpose function with a documented `# Safety:` contract. Current `unsafe` footprint (grep for `unsafe fn|impl|trait|{` on 2026-04-16): **177 occurrences across 34 files**, concentrated in `libraries/shared-memory-server/` (26), `libraries/extensions/ros2-bridge/src/_core/` (34), and the C/C++ API surfaces.
+
+    **Gap against the rule, verified on 2026-04-16:** several safe methods contain inline `unsafe { }` blocks rather than delegating to a dedicated unsafe helper — e.g. `libraries/shared-memory-server/src/channel.rs` has inline `unsafe` in the otherwise-safe `send_raw`, `receive`, `disconnect`, `data_len`, `data`/`data_mut` methods, and `grep -B1 'unsafe {' channel.rs | grep -c Safety` returns **0**, i.e. none of those blocks have `# Safety:` doc comments. The 2026-04-16 security audit did not find exploitable bugs in these paths, but it cannot be cited as evidence that the isolation rule is "holding". Treat this item as: **target state documented; current compliance partial; pre-1.0 walkthrough owes either (a) refactor to single-purpose unsafe helpers with `# Safety:` docs, or (b) an explicit waiver per file that stays inline.**
 2. **Human review for unsafe changes**: Add a CI check requiring human approval for any PR that modifies `unsafe` code. CODEOWNERS alone cannot express this — `unsafe` lives in ordinary files (`libraries/shared-memory-server/src/channel.rs`, `apis/c/node/src/lib.rs`, `apis/c++/{node,operator}/src/lib.rs`, `libraries/extensions/ros2-bridge/src/_core/*.rs`, `libraries/core/src/metadata.rs`, `binaries/daemon/src/node_communication/mod.rs`, etc.) and no glob like `**/unsafe*` matches them. Two workable options:
     - **Path-scoped CODEOWNERS** covering the directories that contain 95%+ of the `unsafe` footprint: `/libraries/shared-memory-server/ /libraries/extensions/ros2-bridge/src/_core/ /apis/c/ /apis/c++/ /libraries/core/src/metadata.rs`. Still human-maintained (drifts when new unsafe lands elsewhere).
     - **Content-based CI check** that diffs the PR and fails if any `+` line matches `\bunsafe\b` without an accompanying `# Safety:` doc comment and a `ai-unsafe-review` label. More robust; higher one-time implementation cost.
@@ -1136,7 +1149,8 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 4. **Unwrap budget enforcement**: Already in CI (`.unwrap-budget` file, budget: 185).
 
 **Pre-merge action items for #207:**
-- [ ] Add CODEOWNERS entry: `**/unsafe*` requires `@phil-opp` or `@haixuanTao` review
+- [ ] Add **path-scoped CODEOWNERS** covering the directories that hold ~95% of the `unsafe` footprint (do **not** use the `**/unsafe*` glob — it matches nothing in this repo): `/libraries/shared-memory-server/`, `/libraries/extensions/ros2-bridge/src/_core/`, `/apis/c/`, `/apis/c++/`, `/libraries/core/src/metadata.rs`, `/apis/rust/operator/src/raw.rs`, `/binaries/daemon/src/node_communication/`. Owners: `@phil-opp`, `@haixuanTao` (TBD — confirm availability).
+- [ ] Add **content-based CI check**: on every PR, fail if the diff adds any `+` line containing `\bunsafe\b` unless the PR has a `ai-unsafe-review` label and the preceding 5 lines include a `# Safety:` doc comment. Catches drift when new `unsafe` lands outside the path-scoped directories.
 - [ ] Add CI check for new `#[ignore]` annotations in test code
 - [ ] Document the QA rules in `CONTRIBUTING.md`
 
@@ -1177,7 +1191,8 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 - [ ] Produce top-10 downstream user list (§14 Appendix C)
 
 **Policy / repo hygiene:**
-- [ ] Add CODEOWNERS for unsafe code (#207)
+- [ ] Add **path-scoped** CODEOWNERS for the directories that contain unsafe code (#207) — the `**/unsafe*` glob does not work
+- [ ] Add **content-based** CI check that fails on `+unsafe` lines without a `# Safety:` doc + review label (#207)
 - [ ] Add CI check for test disabling (#207)
 - [ ] Generate CONTRIBUTORS.md from git history (#214)
 - [ ] **Add `.mailmap` to collapse haixuanTao email aliases before `git shortlog` is cited publicly (review PR)**
