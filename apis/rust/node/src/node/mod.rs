@@ -260,7 +260,8 @@ impl DoraNode {
     /// Setting a `node_id` selects the dynamic-node path; without one, `build()`
     /// falls back to [`init_from_env`](Self::init_from_env). Use this builder
     /// when you need a custom daemon port — the other init functions cover the
-    /// common cases.
+    /// common cases. Source-compatible with upstream dora 0.5.x: `.dynamic()`
+    /// is accepted (no-op) so code written against upstream still compiles.
     ///
     /// ```no_run
     /// use dora_node_api::DoraNode;
@@ -1424,6 +1425,17 @@ impl DoraNodeBuilder {
     /// Set the node ID. Presence of a node ID selects the dynamic-node path.
     pub fn node_id(mut self, node_id: NodeId) -> Self {
         self.node_id = Some(node_id);
+        self
+    }
+
+    /// No-op kept for source compatibility with upstream dora 0.5.x
+    /// [`#1591`](https://github.com/dora-rs/dora/pull/1591). Upstream gates the
+    /// dynamic-node path on an explicit `.dynamic()` call; here, dynamic mode
+    /// is selected by the presence of `node_id`, making the flag redundant.
+    /// Kept so that `.node_id(id).dynamic().build()` written against upstream
+    /// still compiles.
+    #[inline]
+    pub fn dynamic(self) -> Self {
         self
     }
 
