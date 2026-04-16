@@ -25,14 +25,14 @@ This repo (`dora-rs/adora`) is a Rust-first fork of dora that has accumulated a 
 | Open issues | 175 | (track separately) |
 | Default branch | main | main |
 | License | Apache-2.0 | Apache-2.0 |
-| Top contributors (by commit) | phil-opp ~1,786, haixuanTao ~1,828 (three email aliases merged) | heyong4725 + agents |
+| Top contributors (GitHub "contributions" metric¹) | phil-opp 2,023 · haixuanTao 1,895 | heyong4725 + agents |
 | Language primary | Rust | Rust |
 | Last push | 2026-04-07 (active) | 2026-04-16 |
 | Workspace crates | ~30 | ~45 |
 | Rust source files | n/a (not yet audited in upstream) | 252 |
 | Cargo.toml files | n/a | 63 |
 
-> Commit counts above were recomputed from this repo's git history on 2026-04-16. Prior versions of this table (phil-opp 2012, haixuanTao 1873) were stale; verify against `git shortlog -sne` on the day of the merge rather than relying on these figures.
+> ¹ Upstream numbers are from `GET /repos/dora-rs/dora/contributors` on 2026-04-16 — GitHub's "contributions" counter, which measures commits on the default branch after PR merge (accounting for squash/rebase attribution). This is **not** the same as `git shortlog -sne` on a local clone, which counts raw commit authorships. On the fork today, `git shortlog -sne` reports Philipp Oppermann 1,786 and the three `haixuanTao` aliases summing to 1,828 — lower than the upstream contributions metric because the fork is behind upstream's latest commits and because the two metrics disagree systematically. §19.5 discusses contributor preservation in detail (issue #214); the headline table above uses the upstream-authoritative number for the upstream column.
 
 **Timeline estimate:** ~4 weeks end-to-end, gated on governance alignment with dora maintainers.
 
@@ -1080,6 +1080,7 @@ Template:
 | 2026-04-16 | heyong4725 + AI | Review amendments: §1.1 terminology; relabel `dora-upstream` vs `dora-fork`; §3.4 workflow counts corrected; §13/Appendix B marked historical (Phase 2 complete); §19.5 contributor framing corrected; §19.6 unsafe count sourced; §19.7 gate-status honesty pass; D-6/D-7 reordered; R-14 wording fixed; Phase 3b vs D-7 contradiction flagged; D-0 consolidation-strategy decision point added; §19.8 checklist expanded with governance / rename-residue / scope items. See review PR description for full findings. |
 | 2026-04-16 | heyong4725 + AI | Review round 2 (follow-up from PR #286 comments): line-3 Status header reconciled with §19.7 (no longer claims "gates cleared"); Phase 5 step 8 archive target corrected (archive fork `dora-rs/adora`, not destination `dora-rs/dora`); §3.1 and Phase 4 compat-layer scope corrected — `apis/rust/compat/` does not exist in either tree, so Phase 4 is "create" not "invert"; §16 Appendix E audit commands rewritten with explicit `UPSTREAM` / `FORK` paths (prior version diffed same file against itself); §19.6 unsafe-review enforcement rewritten (the `**/unsafe*` CODEOWNERS glob does not match actual unsafe files — proposed path-scoped CODEOWNERS + content-based CI check); §19.3 dropped upstream #1610 from the gap list (PR was ported *from* the fork per its own body); 4 gaps → 3 gaps. |
 | 2026-04-16 | heyong4725 + AI | Review round 3 (follow-up from second PR #286 review): §19.6 action list and §19.8 checklist updated to use path-scoped CODEOWNERS + content-based CI (they still referenced the broken `**/unsafe*` glob as the required step); Appendix E PyPI ownership check fixed (was running `pip index versions dora-rs` twice — verified both upstream and fork publish the same two names `dora-rs` and `dora-rs-cli`, so the check now loops both names and records owner-list URLs for manual ownership verification); §19.6 "Unsafe code isolation" softened from "isolation rule holding" to "target state documented; current compliance partial" with a verified example (channel.rs send_raw / receive / disconnect / data_len / data have inline `unsafe { }` in safe methods and 0 `# Safety:` docs). |
+| 2026-04-16 | heyong4725 + AI | Review round 4 (PR #286 third review): §1 headline top-contributor row — prior cell listed phil-opp 1,786 / haixuanTao 1,828 for the `dora-upstream` column but those are `dora-fork` local git-shortlog numbers. Verified actual upstream contributions via `gh api repos/dora-rs/dora/contributors` = phil-opp 2,023 / haixuanTao 1,895. Replaced with the upstream-authoritative figure and added a footnote naming the metric ("GitHub contributions metric" vs `git shortlog`). §19.5 contributor-count row — "upstream 115 / fork 90" had no traceable provenance; upstream contributors API returns 91. Replaced with both methods named, both commands reproducible, and a note that the prior 115/90 framing is not to be reused. |
 
 ---
 
@@ -1126,12 +1127,14 @@ All major deps: adora ahead.
 
 ### 19.5 Contributor preservation (issue #214)
 
-- `dora-upstream`: **115 unique git authors** (as of 2026-04-16)
-- `dora-fork`: **90 unique git authors** (as of 2026-04-16; `git log --format='%aN' | sort -u | wc -l`)
-- The 25-author delta is **not** a "loss" — it is authors who contributed to `dora-upstream` after the fork diverged and whose commits never reached this tree. The union (which becomes the post-merge contributor set) is ~115 + (fork-only authors).
+Contributor counting has two systematically-different metrics. This section reports both and names the source so the numbers stay auditable.
+
+- **`dora-upstream` — GitHub contributors API** (default-branch contributors only, with `anon=true` pagination): **91 authors** as of 2026-04-16. Command: `gh api "repos/dora-rs/dora/contributors?per_page=100&anon=true" --paginate --jq 'length'`.
+- **`dora-fork` — local `git shortlog`**: **90 authors** as of 2026-04-16. Command: `git log --format='%aN' | sort -u | wc -l`. This counts raw commit authorships across all refs, not just the default branch.
+- The two numbers disagree with each other by methodology alone. Pre-merge, rerun both on the day of the merge and also produce a local `git shortlog` on a fresh clone of `dora-upstream` so we have apples-to-apples fork-vs-upstream numbers. A prior draft of this document cited "upstream 115 / fork 90" without a traceable method — don't use those figures.
 - Note: `haixuanTao` has three email aliases (`haixuanTao`, `haixuantao`, `Haixuan Xavier Tao`) that split 981 + 442 + 405 commits in this repo. A `.mailmap` pass before merge is recommended so `git shortlog -sne` collapses the aliases.
-- The consolidation merge recipe (Appendix A) preserves both histories as parents. After merge: `git shortlog -sne HEAD` shows the full union.
-- GitHub's contributor card may still under-count. Mitigation: `CONTRIBUTORS.md` generated from `git log --format='%aN <%aE>' | sort -uf` after the merge.
+- The consolidation merge recipe (Appendix A) preserves both histories as parents. After merge: `git shortlog -sne HEAD` (with `.mailmap` applied) shows the full union.
+- GitHub's contributor card may still under-count after the merge (the UI may not follow `--allow-unrelated-histories` well). Mitigation: generate `CONTRIBUTORS.md` from `git log --format='%aN <%aE>' | sort -uf` and commit it, so attribution is durable regardless of what the UI renders.
 
 ### 19.6 AI-generated code QA rules (issue #207)
 
