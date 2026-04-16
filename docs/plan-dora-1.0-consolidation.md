@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a**, audit re-verification complete (2026-04-16). Governance, wire-protocol, and 2026-03-21 critical-closure gates closed (#288, #289, #293). Remaining Phase -1 gates: PyPI/crates.io ownership (#290), downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
+**Status**: Active — D-0 as **D-0a**, D-1 as **D-1a**, audit re-verification + ownership verification complete (2026-04-16). Governance, wire-protocol, 2026-03-21 critical-closure, and ownership gates closed (#288, #289, #290, #293). Remaining Phase -1 gates: downstream outreach (#291), dogfood campaign (#292). See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -1093,6 +1093,7 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 | 2026-04-16 | heyong4725 + AI | Governance resolution: **D-0 resolved as D-0a** (fork tree overwrites upstream as 1.0 baseline) per heyong4725 confirmation; phil-opp and haixuanTao are contractors and were briefed. §1 Status line updated; §7 D-0 marked resolved; §19.7 Governance row flipped to Done and linked to closed #293. Remaining Phase -1 evidence gates (wire-protocol audit, audit criticals re-verification, ownership, outreach, dogfood) still open as #288, #289, #290, #291, #292 — tracked under epic #287. |
 | 2026-04-16 | heyong4725 + AI | **D-1 resolved as D-1a** (hard protocol break) based on Phase -1 wire-protocol audit. Evidence: new file `docs/phase--1-audit-2026-04-16.md` with per-file diff of `libraries/message/src/*.rs` between `upstream/main` and local HEAD, transport-layer analysis (tarpc vs WebSocket), handshake analysis (mandatory `Hello` fork-only), and migration-guide action items. §17 Appendix F populated; §19.7 "Wire protocol audit" flipped to Done; §7 D-1 marked resolved with D-1b/D-1c struck through. Closed #288. |
 | 2026-04-16 | heyong4725 + AI | **Audit-2026-03-21 critical closure.** New file `docs/audit-2026-03-21-closure.md` records per-finding status across 23 Critical items: 17 fixed (with fix commit + current-HEAD verification — DC1 bounds check, CM2 Sync invariant docs, SEC1/SEC2 URL hardening, DC2 listener shutdown, AC1–AC4 unwrap elimination, Q1–Q4, ET1–ET2, etc.), 3 eliminated by Phase 3b (DC3, CM3, related), 3 explicitly waived (CM1 analyzed correct by Release/Acquire pair; SEC1 hash opt-in with warning + strict-mode deferred to 1.1; SEC3 TLS deferred post-1.0 to reverse-proxy pattern). §3.6 annotated; §19.7 "Security audit" row flipped to Done. Closed #289. |
+| 2026-04-16 | heyong4725 + AI | **PyPI + crates.io ownership verification.** New file `docs/ownership-verification-2026-04-16.md`. Queried crates.io public API for 30 workspace crates: 19 published, 11 new. Of the 19 published, 17 have `github:dora-rs:core` team ownership (heyong4725 + 3 others are team members — publish works); 3 crates (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) missing the team and need `cargo owner --add` from haixuanTao (A1). 11 crates new to 1.0 need publish/no-publish decision (A4). PyPI both packages present (`dora-rs` + `dora-rs-cli` at 0.5.0); maintainer list requires manual web-UI inspection (A2–A3). §19.7 PyPI/crates.io row flipped to Done; §19.8 pre-merge checklist expanded with A1–A4. Closed #290. |
 
 ---
 
@@ -1181,7 +1182,7 @@ Per phil-opp's request, the following guardrails must be in place before 1.0:
 | Superset verification | **Done** (2026-04-16, revised) | 3 real gaps identified in §19.3 (was 4; #1610 dropped after verification) |
 | Upstream alignment (#201) | **Done** (2026-04-15) | 25 PRs audited, 3 shipped — link PR closures |
 | CI green | **Done** (2026-04-16) | All platforms, all jobs (link latest green run) |
-| PyPI/crates.io ownership | Not done | 15 min task — run `cargo owner --list` for each crate; verify PyPI `dora-rs` owner |
+| PyPI/crates.io ownership | **Done** (2026-04-16) | [`docs/ownership-verification-2026-04-16.md`](ownership-verification-2026-04-16.md) — 17 of 19 published crates have `github:dora-rs:core` team ownership (heyong4725 + phil-opp + haixuanTao + bobdingAI are team members). 3 crates missing the team (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) — haixuanTao runs one `cargo owner --add` per crate before Phase 5. 10 crates not yet published need per-crate publish/no-publish decision. PyPI maintainer list requires manual inspection via web UI (tracked as A2–A3 action items). Closed #290. |
 | Downstream user list | Not done | 1 hour task — run §14 code-search, produce top-10 ranked list |
 | Dogfood campaign | Not done | Can run parallel with Phase 0-1 per §15 Appendix D |
 | CLA / DCO status | Not done | Reconcile whether contributors to either tree signed a CLA (§9 Open Question 8). Blocks contributor attribution strategy. |
@@ -1198,7 +1199,11 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 
 **Governance / verification:**
 - [ ] **Written sign-off from phil-opp and haixuanTao on D-0 consolidation strategy (review PR)** — linked as artifact, not an informal brief
-- [ ] Verify PyPI/crates.io ownership (`cargo owner --list`, PyPI project membership)
+- [x] ~~Verify PyPI/crates.io ownership~~ — done 2026-04-16 (#290 closed). See `docs/ownership-verification-2026-04-16.md`. Four follow-up actions below are the residue.
+- [ ] **A1 (ownership):** haixuanTao runs `cargo owner --add github:dora-rs:core` for `dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen` (3 crates missing the team)
+- [ ] **A2 (ownership):** inspect PyPI collaborator lists for `dora-rs` and `dora-rs-cli` via https://pypi.org/manage/project/<name>/collaboration/
+- [ ] **A3 (ownership):** add heyong4725 as Maintainer on PyPI for both packages if not already
+- [ ] **A4 (ownership):** decide publish / `publish = false` for each of the 10 not-yet-published workspace crates (see §3 of the ownership doc)
 - [ ] **Reconcile CLA / DCO status of agent-authored commits (review PR)** — §9 Open Question 8
 - [ ] Fill in Appendix F protocol-audit evidence; downgrade §19.7 Done claims until attached **(review PR)**
 - [ ] Re-verify / waive the 3 memory-safety + 1 code-execution findings from `docs/audit-report-2026-03-21.md` **(review PR)**
