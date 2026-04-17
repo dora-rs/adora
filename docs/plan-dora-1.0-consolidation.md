@@ -1,6 +1,6 @@
 # Dora 1.0 Consolidation Plan
 
-**Status**: **Phase -1 complete (2026-04-16).** D-0 = D-0a, D-1 = D-1a. All six Phase -1 evidence gates resolved: governance (#293), wire-protocol (#288), 2026-03-21 critical-closure (#289), ownership (#290), downstream outreach right-sized (#291), dogfood rescoped to Phase 5b (#292). Phase 0 ready to start. Release flow is now **Phase 5a (tag 1.0-rc) → Phase 5b (RC dogfood + stabilization, open-ended) → Phase 5c (tag 1.0.0 GA)**. See tracking epic #287.
+**Status**: **Phase -1 complete + all decision points resolved (2026-04-17).** D-0 = D-0a (tree takeover), D-1 = D-1a (hard protocol break), D-7 = D-7c (partial Zenoh SHM, data plane only). Scope reconciliation complete via #297: no `dora migrate` command (hard break, zero production users); 58 `dora-rs/adora#NNN` code-comment refs left as-is (archived repo serves them). All Phase -1 evidence gates resolved: governance (#293), wire-protocol (#288), 2026-03-21 critical-closure (#289), ownership (#290), downstream outreach right-sized (#291), dogfood rescoped to Phase 5b (#292). Phase 0 ready to start. Release flow: **5a tag rc → 5b dogfood → 5c tag GA**. See tracking epic #287.
 **Date**: 2026-04-16 (updated from 2026-04-10)
 **Author**: heyong4725 (with AI assistance)
 **Scope**: This repo (`dora-rs/adora`) is the feature superset of upstream `dora-rs/dora`. The rename from `adora` → `dora` is complete. This plan describes pushing this repo's tree into `dora-rs/dora` as **dora 1.0.0**.
@@ -242,7 +242,7 @@ This is the canonical source of truth for "what wins" when dora and dora diverge
 | Source tree (`*.rs` files) | **dora wins wholesale** | Superset; cleaner to replace than merge | Where dora has a bug fix dora never received, cherry-pick the fix onto the consolidated tree |
 | Crate names | **dora-* wins** | Brand reclaim is the point of consolidation | dora-* crates published as deprecated re-export shims for 6 months |
 | Binary name | **dora wins** | Same | Ship `dora` as a deprecated symlink in the dora deb/wheel for 1 minor version |
-| File formats (`.adorec` recording, YAML) | **dora wins**, but **dora formats remain readable** | Zero-day breakage for existing dora users is unacceptable | Daemon should read both `.adorec` and old dora recording formats; `dora migrate-yaml` command for config upgrades |
+| File formats (`.drec` recording, YAML) | **dora wins**; 1.0 is a hard break (#297) | No production users identified (`docs/downstream-user-assessment-2026-04-16.md`); cost of backward-compat format readers + `migrate-yaml` tooling outweighs value | Manual rename `capture.adorec → capture.drec`; no format-compat shim, no `dora migrate-yaml` command; migration guide documents manual YAML field updates |
 | Public Rust APIs | **dora wins** | Superset | Every removed/renamed API documented in migration guide with a replacement |
 | Python APIs | **dora wins** | Superset | Same |
 | C / C++ APIs | **dora wins** | Superset | Already has macro-based compat layer in dora (`node_api.h` → see `docs/dora-compatibility.md`) |
@@ -366,44 +366,42 @@ Iterate until all four are green.
 
 **Gate:** dora 1.0 tree contains a strict union of dora and dora test coverage; verification loop still passes.
 
-### Phase 3b: Adopt Zenoh shared memory (2-3 days)
+### Phase 3b: Adopt Zenoh shared memory — data plane only (2-3 days)
 
-> **Scope contradiction flagged (2026-04-16 review):** the body of this section as written describes **D-7a** (full migration — delete `shared-memory-server`, `DropToken`, 4 control channels), but Decision Point **D-7 recommends D-7c** (partial migration — data plane only, keep the 4 control channels on custom shmem until 1.1), and §3.1 lists `shared-memory-server` as a fork-only crate to keep. All three must be reconciled before Phase 3b executes. If D-7c stands, the deletion tasks below should be trimmed to just the data path; if D-7a is chosen, update D-7 and §3.1.
+> **Scope locked to D-7c (partial migration) per #297 resolution, 2026-04-17.** Data-plane messages ≥ 4KB move to Zenoh SHM; the 4 local control channels per node stay on custom shmem until 1.1. The `shared-memory-server` crate remains in the workspace with reduced surface. See D-7 in §7.
 
 **Added 2026-04-08 after the Q1 POC on dora exposed `shared-memory-server` as a QA blind spot.** See `plan-agentic-qa-strategy.md` section 10a.4 and `plan-zenoh-shared-memory.md`.
 
-**Rationale.** Dora's `libraries/shared-memory-server` crate has 30 `unsafe` blocks handling every local node↔daemon message (4 control channels per node + data regions ≥ 4KB). It is the largest concentration of unsafe code in the workspace and cannot be analyzed by miri (FFI), property testing (no pure-Rust entry points), or fuzzing. Upstream dora already migrated to Zenoh's native SHM in `dora-rs/adora#1378`, which deletes ~660 lines of DropToken lifecycle code, removes ~11 unsafe blocks from `channel.rs`, gives 35% lower latency on messages ≥ 64B and 3-10× throughput on messages ≥ 2KB, and removes the pinned `raw_sync_2 =0.1.5` fork dependency.
+**Rationale.** `libraries/shared-memory-server` has 30 `unsafe` blocks handling local node↔daemon messaging. The data-path regions (messages ≥ 4KB) are the majority of bytes moved and the part upstream already migrated via `dora-rs/adora#1378` (deletes ~660 lines of DropToken lifecycle, removes ~11 unsafe blocks from `channel.rs`, 35% lower latency on messages ≥ 64B, 3-10× throughput on messages ≥ 2KB, drops the pinned `raw_sync_2 =0.1.5` fork dep). Control channels are lower-volume, stable, and can wait — covered post-1.0.
 
-**Doing this as part of the consolidation, not before or after, is the right sequencing:**
-- **Before the consolidation**: migration would touch code that is about to be replaced — wasted work, double-tested.
-- **After the consolidation**: the 30 unsafe blocks ship in dora 1.0 under the dora brand, inheriting the QA gap dora already has.
-- **During the consolidation**: the migration naturally aligns dora's tree with upstream dora, removes code that was never going to be QA-covered, and closes the miri gap by removing the uncoverable code entirely. The consolidation is already editing these files, so the churn is already paid for.
+**Doing the data-plane migration as part of the consolidation, not before or after, is the right sequencing:**
+- **Before**: migration would touch code that's about to be replaced by the consolidation merge — wasted work.
+- **After**: the data-path unsafe blocks ship in 1.0 under the dora brand unchanged.
+- **During**: the migration aligns with upstream, removes the larger chunk of uncoverable code, and the consolidation is already editing these files.
 
-**Tasks:**
-1. **Port `dora-rs/adora#1378`** into the `v1.0-rewrite` branch. This is the source code change dora has been queueing.
-2. **Delete** `apis/rust/node/src/node/drop_stream.rs`, `DropToken` types in `libraries/message/src/common.rs`, `pending_drop_tokens` and `check_drop_token` in daemon, and the 4 blocking shmem threads per node.
+**Tasks (D-7c — data plane only):**
+1. **Port the data-plane half of `dora-rs/adora#1378`** into the `v1.0-rewrite` branch.
+2. **Delete** `apis/rust/node/src/node/drop_stream.rs`, `DropToken` types in `libraries/message/src/common.rs`, `pending_drop_tokens` / `check_drop_token` in daemon. These are all data-path lifecycle code.
 3. **Rewrite** `apis/rust/node/src/node/mod.rs` to add a zenoh session + `ShmProvider` to `DoraNode`.
-4. **Update** `send_output` to publish via zenoh when data ≥ threshold.
+4. **Update** `send_output` to publish via zenoh when data ≥ 4KB threshold.
 5. **Update** `apis/rust/node/src/event_stream/data_conversion.rs` to add `RawData::ZenohShm(ZShm)`.
 6. **Update** `libraries/core/src/topics.rs` with zenoh topic helpers.
-7. **Add** recording support by copying `ZShm` data at the record-node level (the PR skips this; we must restore it because dora has `.adorec` support that upstream doesn't).
-8. **Keep the 4KB threshold** for small messages — they continue via the existing TCP control path (per `plan-zenoh-shared-memory.md` recommendation).
-9. **Handle memlock gracefully** with a fallback + warning for `dora run` local dev.
-10. **Pre-warm the zenoh session** during node init to avoid the 16× first-message latency spike.
+7. **Keep** the 4 local control channels (`control`, `events`, `drop`, `events_close`) on custom `shared-memory-server`. Do **not** delete the crate; do **not** delete `ShmemChannel`. These stay until 1.1.
+8. **Add** recording support by copying `ZShm` data at the record-node level (the upstream PR skips this; restore for `.drec` support).
+9. **Keep the 4KB threshold** for small messages — they continue via the existing TCP control path.
+10. **Handle memlock gracefully** with a fallback + warning for `dora run` local dev.
+11. **Pre-warm the zenoh session** during node init to avoid the 16× first-message latency spike.
 
-**Dependencies to remove during this phase:**
-- `shared_memory_extended` (niche, low maintenance)
-- `raw_sync_2 =0.1.5` (exact-version pin on a custom fork)
+**Dependencies changed during this phase:**
+- `shared_memory_extended` — can be dropped if data path is the only consumer; verify during implementation (control channels may still depend on it).
+- `raw_sync_2 =0.1.5` — stays, still used by control channels. Drop in 1.1 when Phase 3 of `plan-zenoh-shared-memory.md` lands.
+- `zenoh` must stay pinned to `~1.8` (already done); `shared-memory` + `unstable` features enabled.
 
-**Dependencies to verify:**
-- `zenoh` must stay pinned to `~1.8` (already done in dora)
-- `zenoh`'s `shared-memory` + `unstable` features must be enabled
-
-**Gate:** `cargo test --all --exclude <python>` passes on the rewrite branch; benchmark regression shows p50 latency improved vs dora 0.x; the `shared-memory-server` crate is either deleted or reduced to <5 unsafe blocks; migration guide documents the breaking change for custom node implementations whose data path consumed `Option<Arc<DataMessage>>`.
+**Gate:** `cargo test --all --exclude <python>` passes on the rewrite branch; benchmark regression shows p50 latency improved vs 0.x for messages ≥ 64B; `shared-memory-server` is reduced in line count but not deleted; migration guide documents the breaking change for custom node implementations whose data path consumed `Option<Arc<DataMessage>>`.
 
 **Risk:** zenoh's SHM API is marked `unstable`. It has been stable since zenoh 0.10 (2023) but could change in zenoh 2.0. Mitigation: pinned to `~1.8`, monitor zenoh releases during the 1.0 post-release period.
 
-**Follow-up (post-1.0, possibly 1.1):** Phase 3 of `plan-zenoh-shared-memory.md` — migrate the 4 control channels to zenoh as well. This fully deletes `shared-memory-server` and eliminates all custom shmem code from the workspace.
+**Follow-up (tracked for 1.1):** Phase 3 of `plan-zenoh-shared-memory.md` — migrate the 4 control channels to zenoh, delete `shared-memory-server` entirely, drop `raw_sync_2`. This closes the miri gap fully.
 
 ### Phase 4: Compat layer (2 days)
 
@@ -426,10 +424,10 @@ Iterate until all four are green.
    - For each dora 0.x API that changed in 1.0, provide a `dora::compat::v0` module with the old signature marked `#[deprecated]`, wrapping the new implementation.
    - Start with the top 10 most-used dora 0.x APIs (determined by downstream-user grep).
    - Remove in 1.1.0.
-5. **YAML descriptor compat**: daemon reads dora 0.x YAML with deprecation warnings; `dora migrate-yaml <file>` command upgrades in place.
-6. **Write a `dora migrate` subcommand** that upgrades a project directory from dora 0.x: updates `Cargo.toml` dependencies, renames YAML fields, prints a report of manual steps required.
+5. ~~**YAML descriptor compat**: daemon reads dora 0.x YAML with deprecation warnings; `dora migrate-yaml <file>` command upgrades in place.~~ **Dropped per #297 resolution, 2026-04-17.** 1.0 is a hard break; no `dora migrate` / `dora migrate-yaml` commands. Zero production deployments per `docs/downstream-user-assessment-2026-04-16.md` — the cost of maintaining migration tooling outweighs the value. Migration guide (`docs/migration-from-0.x.md`) documents the manual upgrade steps.
+6. ~~**Write a `dora migrate` subcommand**~~ — dropped, see task 5.
 
-**Gate:** a sample dora 0.x project (pick one from the downstream user list) builds and runs on dora 1.0 with only automated `dora migrate` changes plus the documented manual steps.
+**Gate:** a sample dora 0.x project upgrades to 1.0 by following the manual steps in `docs/migration-from-0.x.md` (Cargo.toml dep bump, daemon/coordinator/CLI full restart, recording-file extension rename). No automated migration tool ships in 1.0.
 
 ### Phase 5a: Release candidate (2 days to tag; stabilization window follows)
 
@@ -505,7 +503,7 @@ Once the RC is stable:
 | R-5 | Maintainers (phil-opp, haixuanTao) object to consolidation | Medium | Critical | Phase -1 governance conversation; collect objections; be willing to adjust the plan or walk away |
 | R-6 | crates.io name collision or yank issues | Low | Medium | Verify ownership in Phase -1; publish in strict dependency order |
 | R-7 | PyPI package name conflict | Low | Medium | Verify ownership in Phase -1 |
-| R-8 | Arrow 54→58 or pyo3 0.23→0.28 breaks downstream Python nodes | High | Medium | Migration guide links upstream changelogs; dora migrate subcommand flags this |
+| R-8 | Arrow 54→58 or pyo3 0.23→0.28 breaks downstream Python nodes | High | Medium | Migration guide links upstream changelogs; no `dora migrate` subcommand (dropped per #297) — downstream users follow manual steps in `docs/migration-from-0.x.md` |
 | R-9 | Audit critical issues resurface under dora brand | Low (if Phase -1 gate enforced) | Critical | Phase -1 gates on audit closure; independent audit pre-release |
 | R-10 | ROS2 bridge users lose functionality | Medium | High | ROS2 bridge superset claim verified in Phase -1; audit dora-unique bridge features |
 | R-11 | GitHub issue tracker mass-reports post-release | Medium | Medium | Dedicated post-release triage rotation for 2 weeks; canned responses for common migration questions |
@@ -614,16 +612,17 @@ These are the decisions that cannot be made unilaterally. Each needs explicit re
 
 ### D-7: Zenoh SHM migration scope and timing
 
-**Context:** Added 2026-04-08 after the Q1 POC on dora exposed `shared-memory-server` as the largest concentration of unsafe code in the workspace (~30 blocks in `libraries/shared-memory-server/`) and a QA blind spot (can't be analyzed by miri, proptest, or fuzz because tests call libc's `shm_open`). Upstream dora already adopted Zenoh SHM in `dora-rs/adora#1378`. Phase 3b of this plan proposes folding the migration into the consolidation merge.
+**Resolved (2026-04-17): D-7c** — partial migration, data plane only. Keep the 4 control channels on custom shmem until 1.1. Matches what upstream did in `dora-rs/adora#1378`. Confirmed by heyong4725 via #297.
 
-**Options:**
-- **D-7a:** Do it in Phase 3b as currently written. Deletes ~660 lines, removes ~11 unsafe blocks, eliminates `raw_sync_2` pinned fork dep, aligns with upstream. Adds 2-3 days to the critical path.
-- **D-7b:** Defer to dora 1.1. Consolidation ships with the current shared-memory-server; zenoh migration happens as a follow-up. Shorter 1.0 critical path; 1.0 ships with the known QA gap.
-- **D-7c:** Partial: migrate the data plane in Phase 3b (Phase 1 of `plan-zenoh-shared-memory.md`) but keep the 4 control channels on custom shmem until 1.1. This is roughly what upstream dora did.
+**Follow-up note:** the `shared-memory-server` crate remains in the workspace after 1.0 with reduced surface (data-plane code deleted, control channels retained). This area still needs further hardening work post-1.0 — miri / proptest / fuzz coverage gaps remain on the 4 control channels, and `raw_sync_2` pinned fork dep is still present. Track as 1.1 milestone under `plan-zenoh-shared-memory.md` Phase 3.
 
-**Recommendation:** D-7c. Full migration is ~2-3 days more work than partial, and the control channels are relatively stable. D-7a risks scope creep; D-7b ships the QA gap under the dora brand. **Note: Phase 3b body currently describes D-7a and must be reconciled with this recommendation before execution.**
+**Context (historical):** Added 2026-04-08 after the Q1 POC exposed `shared-memory-server` as the largest concentration of unsafe code in the workspace (~30 blocks) and a QA blind spot (can't be analyzed by miri, proptest, or fuzz because tests call libc's `shm_open`). Upstream dora already adopted Zenoh SHM in `dora-rs/adora#1378`.
 
-**Decision owner:** maintainers (phil-opp, haixuanTao) + heyong4725
+~~**Options D-7a / D-7b** (rejected):~~
+- ~~D-7a: full migration in Phase 3b (delete `shared-memory-server` entirely).~~ Scope creep risk; further from upstream's chosen approach.
+- ~~D-7b: defer all zenoh work to 1.1.~~ Ships the QA gap under the dora brand unchanged.
+
+**Decision owner (resolved):** heyong4725 with contractor (phil-opp, haixuanTao) alignment.
 
 ---
 
@@ -958,8 +957,8 @@ Before Phase -1 completes, produce this list:
 5. For each top-10 project:
    - File a courtesy GitHub issue on their repo titled "Heads up: dora 1.0 is coming — we'd love your feedback on the migration guide"
    - Include a link to this plan doc and the migration guide draft.
-   - Ask: "Would you be willing to test `dora migrate` on your project before the 1.0 release?"
-6. Collect responses. Adjust the migration guide and `dora migrate` subcommand based on feedback.
+   - Ask: "Would you be willing to test the manual migration steps on your project before the 1.0 release?"
+6. Collect responses. Adjust the migration guide based on feedback. (Historically this section referenced a `dora migrate` subcommand; that was dropped per #297 resolution 2026-04-17 — zero production users surfaced in the assessment.)
 
 **This step is not optional.** The single biggest reputational risk of the consolidation is surprise breakage at the downstream user level. Early outreach turns potential critics into collaborators.
 
@@ -1131,6 +1130,7 @@ Save the outputs as `docs/phase--1-audit-YYYY-MM-DD.md` and attach to this plan.
 | 2026-04-16 | heyong4725 + AI | **PyPI + crates.io ownership verification.** New file `docs/ownership-verification-2026-04-16.md`. Queried crates.io public API for 30 workspace crates: 19 published, 11 new. Of the 19 published, 17 have `github:dora-rs:core` team ownership (heyong4725 + 3 others are team members — publish works); 3 crates (`dora-arrow-convert`, `dora-ros2-bridge`, `dora-ros2-bridge-msg-gen`) missing the team and need `cargo owner --add` from haixuanTao (A1). 11 crates new to 1.0 need publish/no-publish decision (A4). PyPI both packages present (`dora-rs` + `dora-rs-cli` at 0.5.0); maintainer list requires manual web-UI inspection (A2–A3). §19.7 PyPI/crates.io row flipped to Done; §19.8 pre-merge checklist expanded with A1–A4. Closed #290. |
 | 2026-04-16 | heyong4725 + AI | **Downstream user assessment (scope right-sized).** New file `docs/downstream-user-assessment-2026-04-16.md`. Per owner direction ("dora is mostly POCs, not production"), ran a quick GitHub code-search sweep across Rust + Python + pyproject queries. ~30 external repos surfaced; top-5 are 12–69 stars (YOR-robot, Ekumen/lekiwi, FlagOpen/RoboDriver, kornia/bubbaloop, mofa-studio); **zero production deployments identified**. §14 Appendix C top-10 outreach protocol annotated as superseded; §11 success criterion "3 downstream projects confirm migration via `dora migrate`" replaced by "no unresolved production migration blockers in first 30 days post-release". Right-sized plan: release-note prominence + migration guide + 30-day issue-tracker watch + community ping. Trigger-to-expand defined for surprise production users. §19.7 row flipped to Done. Closed #291. |
 | 2026-04-16 | heyong4725 + AI | **Release flow restructured: Phase 5 split into 5a (rc) + 5b (RC dogfood window) + 5c (GA).** Per owner direction, dogfood runs on the tagged `1.0-rc` against the actual consolidated tree, not on the pre-merge fork. Rationale: pre-merge testing exercises code that's about to change (rename + Zenoh SHM + compat layer); RC testing exercises the actual shipping tree. Phase 5b window is open-ended — ships on clean dogfood, not on a calendar box. §5 Phase 5 rewritten as 5a/5b/5c; §10 timeline table updated with the three-tag cadence; §15 Appendix D rescoped to Phase 5b; §19.7 dogfood row marked "Rescoped — not a Phase -1 gate"; §19.8 checkbox flipped to done-via-rescope; §1 Status line now reads "Phase -1 complete". #292 rescoped to RC-window tracker rather than closed. |
+| 2026-04-17 | heyong4725 + AI | **Scope reconciliation round — three team decisions via #297, all resolved.** (1) **D-7 = D-7c** (partial Zenoh SHM migration, data plane only; control channels stay on custom shmem until 1.1). §5 Phase 3b body rewritten to match (data-plane tasks only, keep `shared-memory-server` crate with reduced surface, keep `raw_sync_2` until 1.1); §7 D-7 marked resolved with D-7a/D-7b struck through; follow-up 1.1 work noted. (2) **No `dora migrate` command in 1.0** — 1.0 is a hard break; zero production users surfaced in the assessment; cost of migration tooling outweighs value. §5 Phase 4 tasks 5+6 struck through; §4 overlap matrix `File formats` row updated to reflect hard break; §6 R-8 mitigation updated to remove `dora migrate` reference; §14 Appendix C outreach questions updated to ask about manual-migration testing; §19.8 checkbox flipped. (3) **58 `dora-rs/adora#NNN` code-comment refs left as-is** — archived repo serves issues indefinitely under D-6a; lowest-churn option, preserves historical design-discussion trail. §19.8 checkbox flipped. §1 Status line updated to reflect all decision points resolved. Closes #297. |
 
 ---
 
@@ -1259,12 +1259,12 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 - [ ] `Cargo.toml` workspace `repository` URL
 - [ ] `docs/octos-adora-integration-report.md` — rename file
 - [ ] `docs/dora-compatibility.md` — rename to `migration-from-0.x.md` and invert direction (§3.5)
-- [ ] 58 inline `dora-rs/adora#NNN` issue refs across 28 files — decide: port numbering, rewrite as `dora-rs/dora#NNN`, or leave as historical record
+- [x] ~~58 inline `dora-rs/adora#NNN` issue refs across 28 files~~ — **leave as-is** per #297 resolution 2026-04-17. Archived GitHub repos continue to serve issues indefinitely under D-6a, so the links remain resolvable. Not touching is the lowest-churn option and preserves the historical design-discussion trail intact. §5 Phase 5c step 5 is consistent (does not delete the archived repo).
 - [ ] `guide/po/*.po` translation catalogs
 
 **Scope reconciliation:** **(review PR)**
 - [ ] Phase 3b body vs D-7 recommendation (currently contradicts — see §3b / D-7)
-- [ ] `dora migrate` subcommand: implement, drop from §11 success criteria, or reassign as a post-1.0 item
+- [x] ~~`dora migrate` subcommand: implement, drop from §11 success criteria, or reassign as a post-1.0 item~~ — **dropped 2026-04-17 (#297)**. Hard break, zero production users, no migration tool ships in 1.0.
 - [ ] Merge §19 findings back into §3 and delete the stale duplicates in §3 (see P1-7 in review PR)
 
 ## 20. Related documents
