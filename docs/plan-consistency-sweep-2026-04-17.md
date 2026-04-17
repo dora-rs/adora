@@ -49,13 +49,13 @@ Five upstream PR numbers are cited in the plan (§19.3 gap table). Each was veri
 
 ## 3. Crate-name claims
 
-Every `dora-*` crate named in the plan was verified against the fork's `Cargo.toml` workspace members:
+Every `dora-*` crate named in the plan was verified against the fork's `Cargo.toml` packages:
 
 ```bash
 grep -rh '^name = ' --include=Cargo.toml . | grep -oE '"dora-[^"]*"' | sort -u
 ```
 
-Output: 31 distinct `dora-*` crate names. Every crate named in the plan is present in the tree. No phantom crate names.
+Output: **32** distinct `dora-*` crate names (not 31 as an earlier draft claimed; corrected 2026-04-17). Note this counts every `name = "..."` declaration in any `Cargo.toml` in the tree, which is a superset of `workspace.members` — `dora-examples` (the root package) is counted here but isn't a member. Every crate named in the plan is present in the tree. No phantom crate names.
 
 One nuance: plan §13 rename map specifies `shared-memory-server` → `dora-shared-memory-server` (for crates.io namespacing). The actual `libraries/shared-memory-server/Cargo.toml` still declares `name = "shared-memory-server"`. This is an **unexecuted rename action**, not a stale claim — the plan describes it as "will be renamed", which is still accurate.
 
@@ -171,16 +171,31 @@ No further independent review pass is warranted — the remaining items are poin
 Every command above is shell-one-liner. Full reproduction from a clean checkout of `main`:
 
 ```bash
-git checkout main
+# Fast-forward local main to origin/main so the subsequent file-exists
+# checks run against the same tree state the sweep recorded. A plain
+# `git fetch` alone doesn't move the working tree.
 git fetch origin main
+git checkout main
+git merge --ff-only origin/main
 
-# §1 File/path existence
-for path in apis/rust/compat/dora-node-api apis/rust/compat/dora-operator-api \
-            apis/rust/node/src/event_stream/data_conversion.rs \
-            apis/rust/node/src/node/mod.rs \
-            binaries/record-node binaries/replay-node binaries/ros2-bridge-node \
-            docs/audit-report-2026-03-21.md docs/migration-from-0.x.md \
-            examples/error-propagation examples/validated-pipeline; do
+# §1 File/path existence (16 paths — matches the 14-of-16 result in §1)
+for path in \
+    apis/rust/compat/dora-node-api \
+    apis/rust/compat/dora-operator-api \
+    apis/rust/node/src/event_stream/data_conversion.rs \
+    apis/rust/node/src/node/drop_stream.rs \
+    apis/rust/node/src/node/mod.rs \
+    binaries/record-node \
+    binaries/replay-node \
+    binaries/ros2-bridge-node \
+    docs/audit-report-2026-03-21.md \
+    docs/migration-from-0.x.md \
+    docs/ros2-bridge.md \
+    examples/error-propagation \
+    examples/log-sink-tcp \
+    examples/ros2-bridge/yaml-bridge-action-server/handler-node \
+    examples/ros2-bridge/yaml-bridge-action/goal-node \
+    examples/validated-pipeline; do
   [ -e "$path" ] && echo "EXISTS: $path" || echo "MISSING: $path"
 done
 
@@ -201,15 +216,19 @@ echo "fork: $(awk '/^members = \[/,/^\]/' Cargo.toml | grep -cE '^\s*"')"
 echo "upstream: $(gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
   awk '/^members = \[/,/^\]/' | grep -cE '^\s*"')"
 
-# §6 Dep versions — use line numbers so you don't pick up a [dev-dependencies]
-# copy of the same key (which is exactly how the sweep's first draft mis-read
-# serde_yaml on upstream).
-awk '/^\[workspace.dependencies\]/,/^\[/' Cargo.toml | \
+# §6 Dep versions — scope to [workspace.dependencies] so you don't pick up a
+# [dev-dependencies] copy of the same key (which is exactly how the sweep's
+# first draft mis-read serde_yaml on upstream).
+#
+# Note: don't use `awk '/^\[workspace.dependencies\]/,/^\[/'` — the `/^\[/`
+# end pattern matches the START line too, so awk exits immediately and emits
+# nothing. Use the explicit-flag form below, or use sed.
+awk '/^\[workspace\.dependencies\]/{p=1;next} /^\[/{p=0} p' Cargo.toml | \
   grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|thiserror) = "
 gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
-  awk '/^\[workspace.dependencies\]/,/^\[/' | \
+  awk '/^\[workspace\.dependencies\]/{p=1;next} /^\[/{p=0} p' | \
   grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml) = "
-grep -E "^rust-version = " Cargo.toml
+grep -E "^rust-version = " Cargo.toml | head -1
 gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
   grep -E "^rust-version = " | head -1
 ```
