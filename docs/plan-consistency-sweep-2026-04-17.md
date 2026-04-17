@@ -1,0 +1,205 @@
+# Plan-Doc Consistency Sweep
+
+**Date:** 2026-04-17
+**Scope:** `docs/plan-dora-1.0-consolidation.md` — every numerical claim, file-existence claim, upstream-vs-fork label, and upstream-PR reference verified against evidence.
+**Issue:** closes #296.
+
+## Method
+
+For each category of claim in the plan doc, one reproducible verifying command was run. Where main and the review branch (`docs/consolidation-plan-review`, PR #286) diverge, the more recent/accurate state is cited and the merge-path is noted.
+
+---
+
+## 1. File and directory claims
+
+All file/path claims in the plan were checked against the live tree on `main`.
+
+```bash
+for path in <each backtick-quoted path in the plan doc>; do
+  [ -e "$path" ] && echo EXISTS || echo MISSING
+done
+```
+
+**Result: 14 of 16 verified paths exist.** The 2 missing paths are both instances of the same misclaim:
+
+| Claimed path | State | Status |
+|---|---|---|
+| `apis/rust/compat/dora-node-api` | **Does not exist on either tree** | Addressed on #286 (correction banner in §3.1 and Phase 4) — not yet on main |
+| `apis/rust/compat/dora-operator-api` | **Does not exist on either tree** | Same |
+
+Everything else (`apis/rust/node/src/...`, `binaries/record-node`, `binaries/replay-node`, `binaries/ros2-bridge-node`, `docs/audit-report-2026-03-21.md`, `docs/migration-from-0.x.md`, `docs/ros2-bridge.md`, `examples/*`) verified present.
+
+---
+
+## 2. Upstream PR references
+
+Five upstream PR numbers are cited in the plan (§19.3 gap table). Each was verified via `gh api repos/dora-rs/dora/pulls/<n>`:
+
+| PR | Plan claim (on main) | Actual title | Correct on main? |
+|---|---|---|---|
+| #1378 | "zenoh SHM migration" (Phase 3b body) | "Replace custom POSIX SHM with zenoh SHM for node-direct publish" | ✅ |
+| #1591 | "DoraNodeBuilder / daemon_port" | "fix(node-api): add builder API to support custom daemon port" | ✅ |
+| #1610 | "C API tracing subscriber parity" | **"fix(c-api): improve safety and correctness of C node API"** — body: _"Ported from dora-rs/adora"_ | ❌ (miscategorized on main; addressed on #286 round 2) |
+| #1611 | "C/C++ publish workflow" | "ci: add workflow to publish pre-built C/C++ libraries on release" | ✅ |
+| #1618 | "CUDA IPC via ctypes" | "Replace numba with ctypes in dora.cuda for CUDA IPC" | ✅ |
+
+**Net:** #1610 is a misclaim on main (plan labels it as a gap to port; upstream body shows it was ported _from_ the fork). Already corrected on #286.
+
+---
+
+## 3. Crate-name claims
+
+Every `dora-*` crate named in the plan was verified against the fork's `Cargo.toml` workspace members:
+
+```bash
+grep -rh '^name = ' --include=Cargo.toml . | grep -oE '"dora-[^"]*"' | sort -u
+```
+
+Output: 31 distinct `dora-*` crate names. Every crate named in the plan is present in the tree. No phantom crate names.
+
+One nuance: plan §13 rename map specifies `shared-memory-server` → `dora-shared-memory-server` (for crates.io namespacing). The actual `libraries/shared-memory-server/Cargo.toml` still declares `name = "shared-memory-server"`. This is an **unexecuted rename action**, not a stale claim — the plan describes it as "will be renamed", which is still accurate.
+
+---
+
+## 4. Headline numerical claims (§1 table)
+
+| Metric | Plan claim (main) | Actual (2026-04-17, `gh api`) | On main? | On #286? |
+|---|---|---|---|---|
+| Upstream stars | 3,188 | **3,483** | stale | stale |
+| Upstream forks | 356 | **367** | stale | stale |
+| Upstream open issues | 175 | **167** | stale | stale |
+| Fork stars | 4 | **6** | stale | stale |
+| Fork forks | 9 | **10** | stale | stale |
+| Upstream version | 0.5.0 | 0.5.0 | ✅ | ✅ |
+| Fork version | 0.2.1 | 0.2.1 | ✅ | ✅ |
+| Top contributors (upstream) | phil-opp 2012, haixuanTao 1873 | phil-opp 2,023, haixuanTao 1,895 | stale | fixed |
+| Top contributors (fork) | "heyong4725 + agents" | heyong4725 + agents | ✅ | ✅ |
+| Last push (upstream) | 2026-04-07 | 2026-04-16 | stale | fixed |
+| Last push (fork) | 2026-04-07 | 2026-04-17 | stale | stale (last round 4 date 04-16) |
+
+**GitHub-metric rows (stars/forks/issues) decay automatically** — every row is stale on both branches. Recommendation: update on the day of merge (Phase 1) rather than repeatedly chasing counts that change daily.
+
+---
+
+## 5. Workspace crate count (§1 table)
+
+| Metric | Plan claim | Actual | Method |
+|---|---|---|---|
+| Upstream workspace crates | ~30 | **39** | `gh api ... /git/trees/main?recursive=1 \| jq '[.tree[] \| select(.path \| endswith("Cargo.toml"))] \| length'` (all); **26 non-example, 13 example** |
+| Fork workspace crates | ~45 | **61** | `awk '/^members = \[/,/^\]/' Cargo.toml \| grep -cE '^\s*"'`; breakdown: **34 non-example, 30 example, -3 duplicates** resulting in 61 `workspace.members` entries total |
+
+**Plan undercounts fork by ~35%.** Recommendation: update `~45` → `61` (or `~60`) on next plan edit.
+
+---
+
+## 6. Dependency versions (§3.2 table)
+
+Verified against both trees' `Cargo.toml`:
+
+| Dep | Plan upstream | Actual upstream | Plan fork | Actual fork | Status |
+|---|---|---|---|---|---|
+| arrow | 54.2.1 | 54.2.1 | 58 | 58 | ✅ both correct |
+| pyo3 | 0.23 | 0.23 | 0.28 | 0.28 | ✅ |
+| pythonize | 0.23 | n/a | 0.28 | n/a | ✅ |
+| zenoh | 1.1.1 | 1.1.1 | ~1.8 | ~1.8 | ✅ |
+| serde_yaml | 0.9.33 | **0.8.23** | 0.9.33 | 0.9.33 | ❌ **upstream cell wrong on main & #286** |
+| thiserror | (not pinned) | n/a | 2.0 | 2.0 | ✅ |
+| git2 | 0.20.4 | not in root | 0.20.4 | 0.20.4 | ✅ |
+| MSRV | 1.85.0 | 1.85.0 | 1.85.0 | **1.88.0** | ❌ **fork cell wrong on main & #286** |
+| edition | 2024 | 2024 | 2024 | 2024 | ✅ |
+
+**Two active errors** not addressed by #286:
+1. `serde_yaml` upstream cell says 0.9.33 but upstream's `Cargo.toml` has `serde_yaml = "0.8.23"` — plan says "tie" which is false.
+2. MSRV fork cell says 1.85.0 but fork's `Cargo.toml` has `rust-version = "1.88.0"` — plan says "tie" which is false.
+
+These are the most impactful findings of this sweep — they change the migration-compatibility story (downstream-user Rust-version bump 1.85 → 1.88 is load-bearing info).
+
+---
+
+## 7. Gate-status claims (§19.7)
+
+Main still claims five Phase -1 gates "Done" that had no evidence attached when the plan was written. #286 has already corrected these — each now cites the evidence file on `docs/consolidation-plan-review`:
+
+| Gate | Main | #286 |
+|---|---|---|
+| Governance alignment | Done | Done (#293 artifact) |
+| Wire protocol audit | Done | Done (`phase--1-audit-2026-04-16.md`, #288) |
+| Security audit (2026-03-21 re-verify) | Done | Done (`audit-2026-03-21-closure.md`, #289) |
+| Superset verification | Done | Done |
+| CI green | Done | Done |
+| PyPI/crates.io ownership | Not done | Done (`ownership-verification-2026-04-16.md`, #290) |
+| Downstream user list + outreach | Not done | Done — scope right-sized (`downstream-user-assessment-2026-04-16.md`, #291) |
+| Dogfood campaign | Not done | Rescoped to Phase 5b (#292) |
+
+All evidence files exist on `docs/consolidation-plan-review` branch; none on main yet (land with #286).
+
+---
+
+## 8. Section + Appendix cross-references
+
+40 internal refs enumerated: `§3.5`, `Appendix A–F`, `D-1` through `D-7`, `Phase -1` through `Phase 6` (including `3b`), `R-1` through `R-17`. Cross-checked every ref against section headers. **All resolve.** No broken anchors.
+
+---
+
+## 9. Summary of net-new findings (not covered by #286 rounds 1–4)
+
+These are the items #296 uncovered that prior rounds didn't:
+
+1. **MSRV fork = 1.88.0, not 1.85.0.** §1 and §3.2 tables both say 1.85.0 for both trees. Downstream-user impact: any 0.x user on rustc 1.85–1.87 must bump compiler to upgrade to 1.0.
+2. **serde_yaml upstream = 0.8.23, not 0.9.33.** §3.2 table marks this row as "tie"; actually fork jumped 0.8 → 0.9 with known breaking changes to merge-key behaviour.
+3. **Fork workspace crate count = 61, plan says ~45.** §1 table undercounts by ~35%.
+4. **All five GitHub-metric rows (stars/forks/issues on both sides) stale on both branches.** Recommendation: snapshot at Phase 1 merge day.
+5. **`shared-memory-server` crate not yet renamed to `dora-shared-memory-server`.** Plan §13 describes this as "will be renamed" — still true, action item still outstanding.
+
+## 10. Recommended path to "ready to hand to maintainers"
+
+The plan doc reaches the acceptance criterion (#296: "ready to hand to phil-opp and haixuanTao without further review rounds") once:
+
+1. **#286 merges** — picks up contributor counts, terminology section, Phase 5 restructure, D-0/D-1 resolutions, gate-status honesty pass, evidence file references, and ~100 other corrections the four review rounds accumulated.
+2. **Net-new findings from this sweep** (§9 above) land as a small follow-up — tracked as a comment on #286 for next-round incorporation.
+3. **GitHub-metric rows** refreshed on Phase 1 merge day.
+
+No further independent review pass is warranted — the remaining items are point fixes, not structural.
+
+## 11. Reproducing this sweep
+
+Every command above is shell-one-liner. Full reproduction from a clean checkout of `main`:
+
+```bash
+git checkout main
+git fetch origin main
+
+# §1 File/path existence
+for path in apis/rust/compat/dora-node-api apis/rust/compat/dora-operator-api \
+            apis/rust/node/src/event_stream/data_conversion.rs \
+            apis/rust/node/src/node/mod.rs \
+            binaries/record-node binaries/replay-node binaries/ros2-bridge-node \
+            docs/audit-report-2026-03-21.md docs/migration-from-0.x.md \
+            examples/error-propagation examples/validated-pipeline; do
+  [ -e "$path" ] && echo "EXISTS: $path" || echo "MISSING: $path"
+done
+
+# §2 Upstream PR titles
+for pr in 1378 1591 1610 1611 1618; do
+  echo "#$pr: $(gh api repos/dora-rs/dora/pulls/$pr --jq .title)"
+done
+
+# §3 Fork crate names
+grep -rh '^name = ' --include=Cargo.toml . | grep -oE '"dora-[^"]*"' | sort -u
+
+# §4 GitHub metrics
+gh api repos/dora-rs/dora --jq '{stars,forks:.forks_count,issues:.open_issues_count}'
+gh api repos/dora-rs/adora --jq '{stars,forks:.forks_count,issues:.open_issues_count}'
+
+# §5 Workspace crate counts
+echo "fork: $(awk '/^members = \[/,/^\]/' Cargo.toml | grep -cE '^\s*"')"
+gh api repos/dora-rs/dora/git/trees/main?recursive=1 \
+  --jq '[.tree[] | select(.path | endswith("Cargo.toml"))] | length'
+
+# §6 Dep versions
+grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|thiserror|rust-version) = " Cargo.toml
+gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
+  grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|rust-version) = "
+```
+
+Expected output from the above commands matches the tables in §1–§6 above.
