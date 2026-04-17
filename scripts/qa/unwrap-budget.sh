@@ -53,6 +53,7 @@ count_unwraps() {
     total=$((total + n))
   done < <(
     rg --files --type rust \
+      -g '*.rs' \
       -g '!**/tests/**' \
       -g '!**/benches/**' \
       -g '!**/examples/**' \
