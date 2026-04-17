@@ -1,8 +1,10 @@
 # Migration Guide: dora 0.x → 1.0
 
-> **Status (2026-04-16):** minimum-viable scaffold. The full migration guide with per-API before/after examples is tracked as follow-up work. The authoritative sources listed below are accurate today; this file collates them into a single entry point.
+> **Status (2026-04-16):** minimum-viable scaffold. The full migration guide with per-API before/after examples is tracked as follow-up work.
 >
 > Previous filename: `dora-compatibility.md` (which documented a fork→upstream compat layer that is obsolete under the tree-takeover consolidation strategy).
+>
+> **Cross-reference caveat:** the audit evidence files named below (`phase--1-audit-2026-04-16.md`, `audit-2026-03-21-closure.md`, `ownership-verification-2026-04-16.md`, `downstream-user-assessment-2026-04-16.md`) currently live on the `docs/consolidation-plan-review` branch (PR #286) and are not yet on `main`. They land with that PR. Filenames are written as plain text below so no link 404s if the merge order flips.
 
 ## What changed
 
@@ -14,14 +16,14 @@ dora 1.0 is the consolidation of the fork tree into the upstream `dora-rs/dora` 
 
 | Surface | 0.x behaviour | 1.0 behaviour | Evidence |
 |---|---|---|---|
-| Wire protocol (CLI ↔ coordinator) | tarpc over TCP with JSON framing | WebSocket with new message shapes | [`phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) §4 |
-| Message-enum variants (`NodeEvent`, `DaemonCommunication`) | 0.x variant order | New variants inserted (`InputRecovered`, `NodeRestarted`, `ParamUpdate`, `ParamDeleted`, `Shmem`) — bincode tags shifted | [`phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) §3 |
+| Wire protocol (CLI ↔ coordinator) | tarpc over TCP with JSON framing | WebSocket with new message shapes | `phase--1-audit-2026-04-16.md` §4 (lands with PR #286) |
+| Message-enum variants (`NodeEvent`, `DaemonCommunication`) | 0.x variant order | New variants inserted (`InputRecovered`, `NodeRestarted`, `ParamUpdate`, `ParamDeleted`, `Shmem`) — bincode tags shifted | `phase--1-audit-2026-04-16.md` §3 (lands with PR #286) |
 | CLI handshake | Optional `get_version()` RPC | Mandatory `ControlRequest::Hello` with semver check | `libraries/message/src/cli_to_coordinator.rs` |
 | Recording file extension | `.adorec` | `.drec` (magic bytes were already `DORAREC\x00` / `DORAEND\x00`) | `libraries/recording/src/lib.rs` |
 | Request-reply communication layer | `libraries/communication-layer/request-reply/` | Replaced by `send_service_request()` / `send_service_response()` helpers and service/action patterns | [`docs/patterns.md`](patterns.md) |
 | Auth | Query-parameter token | Bearer header token, constant-time comparison | `libraries/message/src/auth.rs` |
 
-Additional fixes and hardening items from the 2026-03-21 audit are closed in 1.0; see [`audit-2026-03-21-closure.md`](audit-2026-03-21-closure.md) for the full per-finding record.
+Additional fixes and hardening items from the 2026-03-21 audit are closed in 1.0; see `audit-2026-03-21-closure.md` (lands with PR #286) for the full per-finding record.
 
 ## Upgrade path
 
@@ -55,8 +57,8 @@ Non-exhaustive; see the full 1.0 release notes for the complete list.
 
 ## Related documents
 
-- [`plan-dora-1.0-consolidation.md`](plan-dora-1.0-consolidation.md) — the full consolidation plan
-- [`phase--1-audit-2026-04-16.md`](phase--1-audit-2026-04-16.md) — wire-protocol audit evidence
-- [`audit-2026-03-21-closure.md`](audit-2026-03-21-closure.md) — security/correctness closure
-- [`ownership-verification-2026-04-16.md`](ownership-verification-2026-04-16.md) — publish-path readiness
-- [`downstream-user-assessment-2026-04-16.md`](downstream-user-assessment-2026-04-16.md) — who this matters for
+- [`plan-dora-1.0-consolidation.md`](plan-dora-1.0-consolidation.md) — the full consolidation plan (on main)
+- `phase--1-audit-2026-04-16.md` — wire-protocol audit evidence (lands with PR #286)
+- `audit-2026-03-21-closure.md` — security/correctness closure (lands with PR #286)
+- `ownership-verification-2026-04-16.md` — publish-path readiness (lands with PR #286)
+- `downstream-user-assessment-2026-04-16.md` — who this matters for (lands with PR #286)

@@ -127,7 +127,7 @@ dora record dataflow.yml
 dora record dataflow.yml -o my-capture.drec
 ```
 
-This injects a hidden `__dora_record__` node into the dataflow that subscribes to all node outputs and writes them to an `.drec` file. The record node binary (`dora-record-node`) is auto-built on first use.
+This injects a hidden `__dora_record__` node into the dataflow that subscribes to all node outputs and writes them to a `.drec` file. The record node binary (`dora-record-node`) is auto-built on first use.
 
 The recording runs until you press Ctrl-C or the dataflow stops.
 

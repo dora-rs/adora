@@ -10,7 +10,7 @@ use crate::command::{Executable, Run, default_tracing};
 /// Record dataflow messages to a file for offline replay.
 ///
 /// Injects a record node into the dataflow that captures all (or filtered)
-/// topic data and writes it to an `.drec` recording file.
+/// topic data and writes it to a `.drec` recording file.
 ///
 /// Examples:
 ///

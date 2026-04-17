@@ -11,7 +11,7 @@ use eyre::{Context, bail};
 
 use crate::command::{Executable, Run};
 
-/// Replay a recorded dataflow from an `.drec` file.
+/// Replay a recorded dataflow from a `.drec` file.
 ///
 /// Reads a recording, identifies which nodes produced the recorded data,
 /// replaces them with replay nodes, and runs the modified dataflow.

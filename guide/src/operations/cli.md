@@ -420,7 +420,7 @@ dora restart a1b2c3d4-... --force
 
 #### `dora record`
 
-Record dataflow messages to an `.drec` file for offline replay. See [Debugging Guide](debugging.md#record-and-replay) for full workflows.
+Record dataflow messages to a `.drec` file for offline replay. See [Debugging Guide](debugging.md#record-and-replay) for full workflows.
 
 ```
 dora record <DATAFLOW_YAML> [OPTIONS]
