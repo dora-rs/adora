@@ -1110,7 +1110,7 @@ Before starting Phase 0, close these gaps:
 ## 20. Related documents
 
 - [`plan-agentic-qa-strategy.md`](plan-agentic-qa-strategy.md) — Quality and testing strategy that backs this consolidation. **Must-read companion.**
-- [`dora-compatibility.md`](dora-compatibility.md) — Existing dora→dora compat layer documentation. Will be renamed and inverted as part of Phase 2.
+- [`migration-from-0.x.md`](migration-from-0.x.md) — 0.x → 1.0 migration guide. Renamed from `dora-compatibility.md` and inverted per plan §3.5 (2026-04-16).
 - [`audit-report-2026-03-21.md`](audit-report-2026-03-21.md) — Dora technical debt inventory. Criticals must be closed before 1.0.
 - [`architecture.md`](architecture.md) — System architecture reference.
 - [`testing-guide.md`](testing-guide.md) — Current test infrastructure.
