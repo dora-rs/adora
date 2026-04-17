@@ -83,12 +83,14 @@ One nuance: plan §13 rename map specifies `shared-memory-server` → `dora-shar
 
 ## 5. Workspace crate count (§1 table)
 
+**Correction (2026-04-17):** the initial write-up compared fork `workspace.members` (61) against upstream Cargo.toml file count (39). That's apples-to-oranges — correct metric on both sides is `workspace.members`. Re-measured:
+
 | Metric | Plan claim | Actual | Method |
 |---|---|---|---|
-| Upstream workspace crates | ~30 | **39** | `gh api ... /git/trees/main?recursive=1 \| jq '[.tree[] \| select(.path \| endswith("Cargo.toml"))] \| length'` (all); **26 non-example, 13 example** |
-| Fork workspace crates | ~45 | **61** | `awk '/^members = \[/,/^\]/' Cargo.toml \| grep -cE '^\s*"'`; breakdown: **34 non-example, 30 example, -3 duplicates** resulting in 61 `workspace.members` entries total |
+| Upstream `workspace.members` | ~30 | **35** | `gh api repos/dora-rs/dora/contents/Cargo.toml \| jq .content \| base64 -d \| awk '/^members = \[/,/^\]/' \| grep -cE '^\s*"'` |
+| Fork `workspace.members` | ~45 | **61** | `awk '/^members = \[/,/^\]/' Cargo.toml \| grep -cE '^\s*"'` |
 
-**Plan undercounts fork by ~35%.** Recommendation: update `~45` → `61` (or `~60`) on next plan edit.
+**Upstream plan number (~30) is within approximation tolerance** of the actual 35. **Fork plan number (~45) still undercounts** by ~35% vs actual 61. So the only real finding here is the fork-side undercount. Recommendation: update `~45` → `61` (or `~60`) on next plan edit; leave `~30` as-is (or tighten to `~35`).
 
 ---
 
@@ -102,17 +104,16 @@ Verified against both trees' `Cargo.toml`:
 | pyo3 | 0.23 | 0.23 | 0.28 | 0.28 | ✅ |
 | pythonize | 0.23 | n/a | 0.28 | n/a | ✅ |
 | zenoh | 1.1.1 | 1.1.1 | ~1.8 | ~1.8 | ✅ |
-| serde_yaml | 0.9.33 | **0.8.23** | 0.9.33 | 0.9.33 | ❌ **upstream cell wrong on main & #286** |
+| serde_yaml | 0.9.33 | 0.9.33 | 0.9.33 | 0.9.33 | ✅ |
 | thiserror | (not pinned) | n/a | 2.0 | 2.0 | ✅ |
 | git2 | 0.20.4 | not in root | 0.20.4 | 0.20.4 | ✅ |
 | MSRV | 1.85.0 | 1.85.0 | 1.85.0 | **1.88.0** | ❌ **fork cell wrong on main & #286** |
 | edition | 2024 | 2024 | 2024 | 2024 | ✅ |
 
-**Two active errors** not addressed by #286:
-1. `serde_yaml` upstream cell says 0.9.33 but upstream's `Cargo.toml` has `serde_yaml = "0.8.23"` — plan says "tie" which is false.
-2. MSRV fork cell says 1.85.0 but fork's `Cargo.toml` has `rust-version = "1.88.0"` — plan says "tie" which is false.
+**Correction (2026-04-17):** an earlier write-up of this section claimed `serde_yaml = "0.8.23"` for upstream, calling the row wrong. That was grep error on my part — upstream's `Cargo.toml` has `serde_yaml = "0.9.33"` in `[workspace.dependencies]` (line 89) and `serde_yaml = "0.8.23"` in `[dev-dependencies]` (line 113); §3.2 is a workspace table so `0.9.33` is the right value and the plan row is correct. Withdrawn.
 
-These are the most impactful findings of this sweep — they change the migration-compatibility story (downstream-user Rust-version bump 1.85 → 1.88 is load-bearing info).
+**One active error** not addressed by #286:
+1. MSRV fork cell says 1.85.0 but fork's `Cargo.toml` has `rust-version = "1.88.0"` — plan says "tie" which is false. This changes the migration-compatibility story (downstream-user Rust-version bump 1.85 → 1.88 is load-bearing info).
 
 ---
 
@@ -143,13 +144,17 @@ All evidence files exist on `docs/consolidation-plan-review` branch; none on mai
 
 ## 9. Summary of net-new findings (not covered by #286 rounds 1–4)
 
-These are the items #296 uncovered that prior rounds didn't:
+These are the items #296 uncovered that prior rounds didn't. Two of five from the first draft have been withdrawn after the round-1 review of this PR (see the "Retracted" sub-section below).
 
 1. **MSRV fork = 1.88.0, not 1.85.0.** §1 and §3.2 tables both say 1.85.0 for both trees. Downstream-user impact: any 0.x user on rustc 1.85–1.87 must bump compiler to upgrade to 1.0.
-2. **serde_yaml upstream = 0.8.23, not 0.9.33.** §3.2 table marks this row as "tie"; actually fork jumped 0.8 → 0.9 with known breaking changes to merge-key behaviour.
-3. **Fork workspace crate count = 61, plan says ~45.** §1 table undercounts by ~35%.
-4. **All five GitHub-metric rows (stars/forks/issues on both sides) stale on both branches.** Recommendation: snapshot at Phase 1 merge day.
-5. **`shared-memory-server` crate not yet renamed to `dora-shared-memory-server`.** Plan §13 describes this as "will be renamed" — still true, action item still outstanding.
+2. **Fork `workspace.members` = 61, plan says ~45.** §1 table undercounts by ~35% (corrected method; initial write-up compared fork workspace.members vs upstream Cargo.toml file count, which was not apples-to-apples).
+3. **All five GitHub-metric rows (stars/forks/issues on both sides) stale on both branches.** Recommendation: snapshot at Phase 1 merge day.
+4. **`shared-memory-server` crate not yet renamed to `dora-shared-memory-server`.** Plan §13 describes this as "will be renamed" — still true, action item still outstanding.
+
+### Retracted after review
+
+- ~~serde_yaml upstream = 0.8.23~~ — grep read line 113 (`[dev-dependencies]`) instead of line 89 (`[workspace.dependencies]`). Upstream workspace value is 0.9.33, plan row is a genuine "tie", finding withdrawn. Flagged by PR #300 round-1 review.
+- ~~Upstream workspace crates = 39~~ — that number came from counting Cargo.toml files, not `workspace.members`. Correct upstream `workspace.members` count is 35, which matches the plan's `~30` within approximation tolerance. Flagged by PR #300 round-1 review.
 
 ## 10. Recommended path to "ready to hand to maintainers"
 
@@ -191,15 +196,22 @@ grep -rh '^name = ' --include=Cargo.toml . | grep -oE '"dora-[^"]*"' | sort -u
 gh api repos/dora-rs/dora --jq '{stars,forks:.forks_count,issues:.open_issues_count}'
 gh api repos/dora-rs/adora --jq '{stars,forks:.forks_count,issues:.open_issues_count}'
 
-# §5 Workspace crate counts
+# §5 Workspace.members counts (apples-to-apples)
 echo "fork: $(awk '/^members = \[/,/^\]/' Cargo.toml | grep -cE '^\s*"')"
-gh api repos/dora-rs/dora/git/trees/main?recursive=1 \
-  --jq '[.tree[] | select(.path | endswith("Cargo.toml"))] | length'
+echo "upstream: $(gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
+  awk '/^members = \[/,/^\]/' | grep -cE '^\s*"')"
 
-# §6 Dep versions
-grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|thiserror|rust-version) = " Cargo.toml
+# §6 Dep versions — use line numbers so you don't pick up a [dev-dependencies]
+# copy of the same key (which is exactly how the sweep's first draft mis-read
+# serde_yaml on upstream).
+awk '/^\[workspace.dependencies\]/,/^\[/' Cargo.toml | \
+  grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|thiserror) = "
 gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
-  grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml|rust-version) = "
+  awk '/^\[workspace.dependencies\]/,/^\[/' | \
+  grep -E "^(arrow|pyo3|zenoh|tokio|serde_yaml) = "
+grep -E "^rust-version = " Cargo.toml
+gh api repos/dora-rs/dora/contents/Cargo.toml --jq .content | base64 -d | \
+  grep -E "^rust-version = " | head -1
 ```
 
 Expected output from the above commands matches the tables in §1–§6 above.
