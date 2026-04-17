@@ -89,11 +89,11 @@ Where older sections still say "dora" ambiguously, the rule is: if the sentence 
 > **Correction (2026-04-16 review):** earlier drafts listed `apis/rust/compat/dora-node-api` and `.../dora-operator-api` as "existing compat shims that will be reversed in 1.0". Neither directory exists today — not in `dora-fork` and not in `dora-upstream` (verified against `dora-rs/dora@main`). The Phase 4 compat layer is **new code to write**, not a directory rename. Phase 4 has been re-scoped accordingly.
 
 | `binaries/ros2-bridge-node` | Standalone ROS2 bridge node binary |
-| `binaries/replay-node` | Replays `.adorec` recordings as dataflow sources |
-| `binaries/record-node` | Records dataflow traffic to `.adorec` format |
+| `binaries/replay-node` | Replays `.drec` recordings as dataflow sources |
+| `binaries/record-node` | Records dataflow traffic to `.drec` format |
 | `libraries/log-utils` | Shared logging utilities |
 | `libraries/coordinator-store` | Persistent state backend for coordinator (parameters, daemon state) |
-| `libraries/recording` | `.adorec` format reader/writer |
+| `libraries/recording` | `.drec` format reader/writer |
 | `libraries/shared-memory-server` | Zero-copy IPC, separated from communication-layer |
 | `libraries/extensions/ros2-bridge/arrow` | Arrow-typed message conversion for ROS2 bridge |
 
@@ -245,7 +245,7 @@ This is the canonical source of truth for "what wins" when dora and dora diverge
 | File formats (`.drec` recording, YAML) | **dora wins**; 1.0 is a hard break (#297) | No production users identified (`docs/downstream-user-assessment-2026-04-16.md`); cost of backward-compat format readers + `migrate-yaml` tooling outweighs value | Manual rename `capture.adorec → capture.drec`; no format-compat shim, no `dora migrate-yaml` command; migration guide documents manual YAML field updates |
 | Public Rust APIs | **dora wins** | Superset | Every removed/renamed API documented in migration guide with a replacement |
 | Python APIs | **dora wins** | Superset | Same |
-| C / C++ APIs | **dora wins** | Superset | Already has macro-based compat layer in dora (`node_api.h` → see `docs/dora-compatibility.md`) |
+| C / C++ APIs | **dora wins** | Superset | Already has macro-based compat layer in dora (`node_api.h` → see `docs/migration-from-0.x.md`) |
 | Wire protocol | **dora wins**, but **see Decision Point D-1** | Needs dedicated audit | May require a 0.9 bridge release that speaks both |
 | Tests | **Union** | dora tests encode years of user-reported bug signal | If a dora test fails on dora tree, fix dora's implementation, do not delete the test |
 | Examples | **Union, dora-superset** | dora examples are tutorials users may have bookmarked | Port dora examples that don't exist in dora; update dora-branded examples in place |
@@ -512,7 +512,7 @@ Once the RC is stable:
 | R-14 | Merge commit confuses `git blame` or breaks third-party tooling | Low | Low | `git log --first-parent` reproduces the upstream linear timeline; `git blame` after an `ours`-merge attributes each line to the last author who touched it in its native history (i.e. the fork's authors for fork-sourced lines), which is the intended behavior. Document this in the release notes so downstream tools expecting a single linear history aren't surprised. |
 | R-15 | Zenoh SHM migration (Phase 3b) regresses latency on small messages | Medium | Medium | Keep 4KB threshold; messages below it continue via existing TCP path; benchmark regression gate blocks release if p99 drops |
 | R-16 | Zenoh SHM `unstable` API breaks in a future zenoh release | Low (6-12 months) | Medium | Pin to `~1.8`; monitor zenoh releases; CI nightly rebuild against zenoh's main branch as early-warning |
-| R-17 | Zenoh SHM recording (`.adorec`) support not finished before release | Medium | High | Phase 3b explicitly includes recording support via a ZShm → Vec<u8> copy at record-node level; gate the release on `examples/validated-pipeline` recording end-to-end test passing |
+| R-17 | Zenoh SHM recording (`.drec`) support not finished before release | Medium | High | Phase 3b explicitly includes recording support via a ZShm → Vec<u8> copy at record-node level; gate the release on `examples/validated-pipeline` recording end-to-end test passing |
 
 ---
 
@@ -1270,7 +1270,7 @@ Before starting Phase 0, close these gaps. Items marked **(review PR)** were add
 ## 20. Related documents
 
 - [`plan-agentic-qa-strategy.md`](plan-agentic-qa-strategy.md) — Quality and testing strategy that backs this consolidation. **Must-read companion.**
-- [`dora-compatibility.md`](dora-compatibility.md) — Existing dora→dora compat layer documentation. Will be renamed and inverted as part of Phase 2.
+- [`migration-from-0.x.md`](migration-from-0.x.md) — 0.x → 1.0 migration guide. Renamed from `dora-compatibility.md` and inverted per plan §3.5 (2026-04-16).
 - [`audit-report-2026-03-21.md`](audit-report-2026-03-21.md) — Dora technical debt inventory. Criticals must be closed before 1.0.
 - [`architecture.md`](architecture.md) — System architecture reference.
 - [`testing-guide.md`](testing-guide.md) — Current test infrastructure.
