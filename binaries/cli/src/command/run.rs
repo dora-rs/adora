@@ -177,6 +177,7 @@ impl Executable for Run {
 
         let working_dir = dataflow_path
             .parent()
+            .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
         let mut dataflow_descriptor = Descriptor::blocking_read(&dataflow_path)
             .wrap_err_with(|| {
