@@ -6,7 +6,7 @@
 > - **Open new issues and PRs** at [dora-rs/dora](https://github.com/dora-rs/dora/issues/new).
 > - **Stabilization tracker** for v1.0.0-rc.N → GA: [dora-rs/dora#1626](https://github.com/dora-rs/dora/issues/1626).
 > - **Detailed fork-era history** is preserved on dora-rs/dora at the [`consolidation/v1.0-rewrite-detail`](https://github.com/dora-rs/dora/tree/consolidation/v1.0-rewrite-detail) tag and the [`v1.0-rewrite`](https://github.com/dora-rs/dora/tree/v1.0-rewrite) branch.
-> - This repository will be **archived after `v1.0.0` GA ships**.
+> - **This repository is archived** as of 2026-05-12. Read-only; existing issues and PRs remain browsable, new ones go to [dora-rs/dora](https://github.com/dora-rs/dora/issues/new).
 
 ---
 

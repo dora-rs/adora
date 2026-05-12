@@ -6,7 +6,7 @@
 > - **新 issue 和 PR** 请在 [dora-rs/dora](https://github.com/dora-rs/dora/issues/new) 提交.
 > - **v1.0.0-rc.N → GA 稳定化跟踪**: [dora-rs/dora#1626](https://github.com/dora-rs/dora/issues/1626).
 > - **分支历史** 完整保留于 dora-rs/dora 的 [`consolidation/v1.0-rewrite-detail`](https://github.com/dora-rs/dora/tree/consolidation/v1.0-rewrite-detail) 标签和 [`v1.0-rewrite`](https://github.com/dora-rs/dora/tree/v1.0-rewrite) 分支.
-> - 本仓库将在 `v1.0.0` GA 发布后**归档**.
+> - **本仓库已于 2026-05-12 归档**. 只读; 现有 issue 和 PR 仍可浏览, 新的请提交至 [dora-rs/dora](https://github.com/dora-rs/dora/issues/new).
 
 ---
 
