@@ -1,3 +1,15 @@
+> [!IMPORTANT]
+> **This repository has been consolidated into [dora-rs/dora](https://github.com/dora-rs/dora) as the 1.0 baseline.**
+>
+> The `adora` fork was a Q1 2026 POC for agentic AI engineering that became dora 1.0 via a [squash-merge on 2026-04-17](https://github.com/dora-rs/dora/commit/145ccce04) (tagged [`v1.0.0-rc.1`](https://github.com/dora-rs/dora/tree/v1.0.0-rc.1)).
+>
+> - **Open new issues and PRs** at [dora-rs/dora](https://github.com/dora-rs/dora/issues/new).
+> - **Stabilization tracker** for v1.0.0-rc.N → GA: [dora-rs/dora#1626](https://github.com/dora-rs/dora/issues/1626).
+> - **Detailed fork-era history** is preserved on dora-rs/dora at the [`consolidation/v1.0-rewrite-detail`](https://github.com/dora-rs/dora/tree/consolidation/v1.0-rewrite-detail) tag and the [`v1.0-rewrite`](https://github.com/dora-rs/dora/tree/v1.0-rewrite) branch.
+> - This repository will be **archived after `v1.0.0` GA ships**.
+
+---
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 # Dora

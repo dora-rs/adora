@@ -1,3 +1,15 @@
+> [!IMPORTANT]
+> **本仓库已合并至 [dora-rs/dora](https://github.com/dora-rs/dora) 作为 1.0 主线。**
+>
+> `adora` 分支是 2026 年第一季度的代理式 AI 工程 POC, 经 [2026-04-17 squash-merge](https://github.com/dora-rs/dora/commit/145ccce04) 合并至上游, 并标记为 [`v1.0.0-rc.1`](https://github.com/dora-rs/dora/tree/v1.0.0-rc.1).
+>
+> - **新 issue 和 PR** 请在 [dora-rs/dora](https://github.com/dora-rs/dora/issues/new) 提交.
+> - **v1.0.0-rc.N → GA 稳定化跟踪**: [dora-rs/dora#1626](https://github.com/dora-rs/dora/issues/1626).
+> - **分支历史** 完整保留于 dora-rs/dora 的 [`consolidation/v1.0-rewrite-detail`](https://github.com/dora-rs/dora/tree/consolidation/v1.0-rewrite-detail) 标签和 [`v1.0-rewrite`](https://github.com/dora-rs/dora/tree/v1.0-rewrite) 分支.
+> - 本仓库将在 `v1.0.0` GA 发布后**归档**.
+
+---
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 # Dora
